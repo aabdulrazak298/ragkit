@@ -1,45 +1,31 @@
-"""Query pipeline — two-agent LLM orchestration."""
+"""Query pipeline — deterministic retrieval (FTS5) + single LLM synthesis."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from rag_kit._llm import LLMConfig, json_completion, chat_completion
-from rag_kit._search import search_chunks
+from rag_kit._llm import LLMConfig, chat_completion
+from rag_kit._search import search as search_chunks
 from rag_kit._storage import Storage
 
-INDEX_FINDER_PROMPT = """\
-You are a text file scanner. Your job is to find which chunks of a document
-are relevant to the user's query.
-
-Available tools:
-- search(file_id, keywords) — fuzzy keyword search across chunks, returns
-  matching indices with previews
-- get_file_info(file_id) — returns file metadata (filename, total chunks)
-- read_toc(file_id) — returns table of contents for the file
-
-Context window is limited. Choose only the most relevant chunks (less than 10).
-Output a JSON object with the chunk indices:
-{"index": [3, 7, 12]}"""
-
-SYNTHESIZER_PROMPT = """\
-You are a document analyst. Given a user's question and specific chunks
+_SYNTHESIZER_PROMPT = """\
+You are a document analyst. Given a user's question and relevant excerpts
 from a document, synthesize a comprehensive answer.
 
-Available tools:
-- get_chunk(file_id, index) — retrieves full text of a chunk by index
-- read_toc(file_id) — returns table of contents for the file
-- update_toc(file_id, text) — updates the table of contents for future
-  searches (use your judgment to create a meaningful TOC)
+Each excerpt is marked with [chunk N]. Reference chunks by number when
+citing specific information.
 
-Read the relevant chunks, then answer the user's question based on the
-content. If the TOC exists, use it to understand the document structure.
-If the TOC is missing or incomplete, consider creating/updating it."""
+If the TOC is available, use it to understand the document structure.
+If the TOC is missing or incomplete, you may suggest updates if asked.
+
+Available tools:
+- read_toc(file_id) — returns table of contents for the file
+- update_toc(file_id, text) — updates the table of contents"""
 
 
 class Pipeline:
-    """Two-agent query pipeline: index finder → synthesizer."""
+    """Single-agent query pipeline: FTS5 retrieval → LLM synthesis."""
 
     def __init__(
         self,
@@ -49,84 +35,111 @@ class Pipeline:
         self._storage = storage
         self._config = llm_config or LLMConfig()
 
-    def query(self, file_id: int, question: str) -> str:
-        """Run the full two-agent pipeline and return the answer."""
-        # Step 1: Find relevant chunks
-        indices = self._find_indices(file_id, question)
+    def query(
+        self, file_id: int, question: str
+    ) -> tuple[str, list[dict]]:
+        """Query a specific file. Returns (answer, citations)."""
+        # Step 1: Deterministic retrieval via FTS5
+        results = search_chunks(
+            self._storage,
+            query=question,
+            file_id=file_id,
+            top_k=10,
+        )
 
-        if not indices:
-            return "No relevant content found in the document."
+        if not results:
+            return "No relevant content found in the document.", []
 
-        # Step 2: Synthesize answer
-        answer = self._synthesize(file_id, indices, question)
-        return answer
-
-    def _find_indices(self, file_id: int, question: str) -> list[int]:
-        """Agent 1: use search results to pick relevant chunk indices."""
-        # Get file info first
-        info = self._storage.get_file(file_id)
-        if not info:
-            return []
-
-        # Run search with the question keywords
-        raw_chunks = self._storage.get_all_chunks(file_id)
-        matches = search_chunks(raw_chunks, question)
-
-        # Get TOC
+        # Step 2: Build context from top chunks
         toc = self._storage.get_toc(file_id) or ""
+        info = self._storage.get_file(file_id) or {}
 
-        # Build context for the LLM
-        chunk_previews = "\n".join(
-            f"  Chunk #{m['index']}: {m['preview'][:200]}"
-            for m in matches[:15]
-        )
-
-        user_msg = (
-            f"File: {info.get('filename', 'unknown')}\n"
-            f"Total chunks: {info.get('total_chunks', 0)}\n"
-            f"TOC: {toc[:500] if toc else 'None'}\n\n"
-            f"Search results (matching chunks):\n{chunk_previews}\n\n"
-            f"Question: {question}\n\n"
-            "Which chunk indices are most relevant? "
-            "Respond with JSON: {\"index\": [1, 4, 7]}"
-        )
-
-        try:
-            resp = json_completion(
-                messages=[{"role": "user", "content": user_msg}],
-                config=self._config,
-            )
-            data = json.loads(resp)
-            indices = data.get("index", [])
-            return [int(i) for i in indices if isinstance(i, (int, float))]
-        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
-            # Fallback: return top matches
-            return [m["index"] for m in matches[:5]]
-
-    def _synthesize(
-        self, file_id: int, indices: list[int], question: str
-    ) -> str:
-        """Agent 2: read the selected chunks and answer the question."""
-        # Read selected chunks
         chunks_text = []
-        for idx in indices[:10]:  # Limit to 10 chunks
-            chunk = self._storage.get_chunk(file_id, idx)
-            if chunk:
-                chunks_text.append(
-                    f"--- Chunk {idx} ---\n{chunk['text']}"
-                )
+        citations = []
+        for r in results[:10]:
+            chunk_idx = r.get("chunk_index", r.get("index", 0))
+            chunks_text.append(f"[chunk {chunk_idx}]\n{r['text']}")
+            citations.append({
+                "file_id": r.get("file_id", file_id),
+                "namespace": info.get("namespace", "default"),
+                "chunk_index": chunk_idx,
+                "score": r.get("score", 0),
+            })
 
-        toc = self._storage.get_toc(file_id) or ""
+        # Step 3: LLM synthesis
+        content_parts = [
+            f"Document: {info.get('filename', 'unknown')}",
+            f"TOC:\n{toc[:1000] if toc else 'None'}",
+            "",
+            "Relevant excerpts:",
+            "\n".join(chunks_text),
+            "",
+            f"Question: {question}",
+            "",
+            "Answer comprehensively based on the content above. "
+            "Reference [chunk N] when citing specific information.",
+        ]
 
-        content = (
-            f"Document TOC:\n{toc[:1000] if toc else 'None'}\n\n"
-            f"Relevant chunks:\n{chr(10).join(chunks_text)}\n\n"
-            f"Question: {question}\n\n"
-            "Answer comprehensively based on the content above."
+        answer = chat_completion(
+            messages=[{"role": "user", "content": "\n".join(content_parts)}],
+            config=self._config,
+        )
+        return answer, citations
+
+    def query_by_namespace(
+        self, question: str, namespace: str | None = None
+    ) -> tuple[str, list[dict]]:
+        """Cross-file query within a namespace (or all files)."""
+        # Search across files
+        results = search_chunks(
+            self._storage,
+            query=question,
+            namespace=namespace,
+            top_k=15,
+        )
+
+        if not results:
+            return "No relevant content found.", []
+
+        # Group results by file
+        file_chunks: dict[int, list[dict]] = {}
+        file_info_cache: dict[int, dict] = {}
+        for r in results[:15]:
+            fid = r.get("file_id", 0)
+            if fid not in file_chunks:
+                file_chunks[fid] = []
+                info = self._storage.get_file(fid)
+                if info:
+                    file_info_cache[fid] = info
+            file_chunks[fid].append(r)
+
+        # Build context
+        sections = []
+        citations = []
+        for fid, chunks in file_chunks.items():
+            info = file_info_cache.get(fid, {})
+            toc = self._storage.get_toc(fid) or ""
+            sections.append(f"--- {info.get('filename', f'file #{fid}')} ---")
+            if toc:
+                sections.append(f"TOC: {toc[:500]}")
+            for c in chunks:
+                ci = c.get("chunk_index", c.get("index", 0))
+                sections.append(f"[file {fid}, chunk {ci}]\n{c['text']}")
+                citations.append({
+                    "file_id": fid,
+                    "namespace": info.get("namespace", "default"),
+                    "chunk_index": ci,
+                    "score": c.get("score", 0),
+                })
+
+        sections.append(f"\nQuestion: {question}")
+        sections.append(
+            "Answer comprehensively. "
+            "Reference [file N, chunk N] when citing specific information."
         )
 
         answer = chat_completion(
-            messages=[{"role": "user", "content": content}],
+            messages=[{"role": "user", "content": "\n".join(sections)}],
             config=self._config,
         )
-        return answer
+        return answer, citations

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 DEFAULT_CHUNK_SIZE = 2500
@@ -9,20 +10,14 @@ DEFAULT_CHUNK_OVERLAP = 200
 DEFAULT_MAX_KEYWORDS = 10
 
 
-def chunk_text(
+def chunk_by_chars(
     text: str,
     chunk_size: int | None = None,
     overlap: int | None = None,
-) -> list[str]:
-    """Split text into overlapping chunks.
+) -> list[dict]:
+    """Split text into fixed-size overlapping chunks.
 
-    Args:
-        text: Raw text to split.
-        chunk_size: Max chars per chunk (default 2500).
-        overlap: Overlap between consecutive chunks (default 200).
-
-    Returns:
-        List of chunk strings.
+    Each chunk dict: {"text": str, "offset": int, "keywords": str}
     """
     if chunk_size is None:
         chunk_size = DEFAULT_CHUNK_SIZE
@@ -36,14 +31,68 @@ def chunk_text(
     if overlap >= chunk_size:
         raise ValueError("overlap must be less than chunk_size")
 
-    chunks: list[str] = []
+    chunks: list[dict] = []
     start = 0
     text_len = len(text)
     while start < text_len:
-        end = start + chunk_size
-        chunks.append(text[start:end])
+        end = min(start + chunk_size, text_len)
+        chunks.append({"text": text[start:end], "offset": start, "keywords": ""})
         start += chunk_size - overlap
     return chunks
+
+
+def chunk_by_paragraphs(
+    text: str,
+    max_chars: int | None = None,
+    overlap: int | None = None,
+) -> list[dict]:
+    """Split on paragraph boundaries (double newlines), merging until max_chars.
+
+    Preserves code blocks, headings, and lists intact.
+    Each chunk dict: {"text": str, "offset": int, "keywords": str}
+    """
+    if max_chars is None:
+        max_chars = DEFAULT_CHUNK_SIZE
+    if overlap is None:
+        overlap = DEFAULT_CHUNK_OVERLAP
+
+    if max_chars <= 0:
+        raise ValueError("chunk_size must be positive")
+
+    # Split on paragraph boundaries
+    paragraphs = re.split(r"\n\n+", text)
+    chunks: list[dict] = []
+    current = ""
+    offset = 0
+
+    for para in paragraphs:
+        # If adding this para would exceed max_chars and we already have content
+        if len(current) + len(para) + 2 > max_chars and current:
+            chunks.append({"text": current.strip(), "offset": offset, "keywords": ""})
+            offset += len(current) - overlap
+            current = para
+        else:
+            if current:
+                current += "\n\n" + para
+            else:
+                current = para
+
+    if current:
+        chunks.append({"text": current.strip(), "offset": offset, "keywords": ""})
+
+    return chunks
+
+
+def chunk_text(
+    text: str,
+    chunk_size: int | None = None,
+    overlap: int | None = None,
+) -> list[str]:
+    """Split text into overlapping chunks (legacy — returns flat strings).
+
+    Kept for backward compatibility. Prefer chunk_by_chars() for new code.
+    """
+    return [c["text"] for c in chunk_by_chars(text, chunk_size, overlap)]
 
 
 def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
@@ -108,20 +157,40 @@ def process_chunks(
     chunk_size: int | None = None,
     overlap: int | None = None,
     extract_kw: bool = True,
+    chunk_mode: str = "chars",
 ) -> list[dict]:
     """Full pipeline: chunk text + extract keywords + generate previews.
 
-    Returns list of dicts with keys: text, keywords, preview.
+    Args:
+        text: Raw text to process.
+        chunk_size: Max chars per chunk.
+        overlap: Overlap between chunks.
+        extract_kw: Whether to extract keywords (requires yake).
+        chunk_mode: "chars" (fixed-size) or "paragraphs" (content-aware).
+
+    Returns list of dicts with keys: text, keywords, keywords_list, offset.
     """
-    chunks = chunk_text(text, chunk_size, overlap)
+    if chunk_mode == "paragraphs":
+        raw_chunks = chunk_by_paragraphs(text, chunk_size, overlap)
+    else:
+        raw_chunks = chunk_by_chars(text, chunk_size, overlap)
+
     result = []
-    for chunk in chunks:
-        kw = ", ".join(extract_keywords(chunk)) if extract_kw else ""
+    for chunk in raw_chunks:
+        if extract_kw:
+            kw_list = extract_keywords(chunk["text"])
+            kw_str = ", ".join(kw_list)
+        else:
+            kw_list = []
+            kw_str = ""
+
         result.append(
             {
-                "text": chunk,
-                "keywords": kw,
-                "preview": "",  # preview needs a query, set during search
+                "text": chunk["text"],
+                "keywords": kw_str,
+                "keywords_list": kw_list,
+                "offset": chunk["offset"],
+                "preview": "",
             }
         )
     return result
