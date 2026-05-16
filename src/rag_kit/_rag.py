@@ -38,6 +38,9 @@ class RAGSystem:
         rag = RAGSystem()
         fid = rag.load_url("https://example.com/doc.txt")
         answer = rag.query(fid, "What is this about?")
+
+    Auto-cleanup: When max_files is exceeded, the least recently accessed
+    files are automatically deleted. Set max_files=0 for unlimited.
     """
 
     def __init__(
@@ -47,12 +50,23 @@ class RAGSystem:
         default_chunk_size: int | None = None,
         default_overlap: int | None = None,
         search_threshold: float | None = None,
+        max_files: int = 50,
     ):
         self._storage = Storage(db_path)
         self._pipeline = Pipeline(self._storage, llm_config)
         self._chunk_size = default_chunk_size or DEFAULT_CHUNK_SIZE
         self._overlap = default_overlap or DEFAULT_CHUNK_OVERLAP
         self._threshold = search_threshold or DEFAULT_SEARCH_THRESHOLD
+        self._max_files = max_files
+
+    def _cleanup_if_needed(self):
+        """Delete least recently accessed files if over max_files limit."""
+        if self._max_files <= 0:
+            return
+        files = self._storage.list_files(order_by="last_accessed", descending=False)
+        while len(files) > self._max_files:
+            f = files.pop(0)  # Oldest first
+            self._storage.delete_file(f["file_id"])
 
     # ── Load ──────────────────────────────────────────────────────────
 
@@ -108,6 +122,7 @@ class RAGSystem:
             chunks=chunks,
             namespace=namespace,
         )
+        self._cleanup_if_needed()
         return file_id
 
     def load_file(
@@ -182,6 +197,7 @@ class RAGSystem:
             chunks=chunks,
             namespace=namespace,
         )
+        self._cleanup_if_needed()
         return file_id
 
     # ── Query ─────────────────────────────────────────────────────────
