@@ -170,6 +170,8 @@ def process_chunks(
 
     Returns list of dicts with keys: text, keywords, keywords_list, offset.
     """
+    # Clean surrogate characters that would crash on UTF-8 encode
+    text = text.encode("utf-8", errors="replace").decode("utf-8")
     if chunk_mode == "paragraphs":
         raw_chunks = chunk_by_paragraphs(text, chunk_size, overlap)
     else:
