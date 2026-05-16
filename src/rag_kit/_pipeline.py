@@ -54,7 +54,14 @@ class Pipeline:
         )
 
         if not results:
-            return "No relevant content found in the document.", []
+            # Fall back to first chunks so LLM can still answer
+            results = [
+                {"chunk_index": c["index"], "text": c["text"], "file_id": file_id,
+                 "score": 0.0, "preview": c.get("preview", c["text"][:100])}
+                for c in self._storage.get_all_chunks(file_id)[:10]
+            ]
+            if not results:
+                return "No relevant content found in the document.", []
 
         # Step 2: Build context from top chunks
         toc = self._storage.get_toc(file_id) or ""
