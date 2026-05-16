@@ -454,15 +454,31 @@ class Storage:
 def _fts5_query_string(query: str) -> str:
     """Convert a plain text query into an FTS5-safe query string.
 
-    Escapes special characters and joins terms with AND logic.
+    Removes common stop words and joins remaining terms with AND.
     """
     import re
 
-    # Remove FTS5 special chars, keep alphanumeric + spaces
+    STOP_WORDS = {
+        "a", "an", "the", "is", "are", "was", "were", "be", "been",
+        "and", "or", "but", "in", "on", "at", "to", "for", "of",
+        "by", "with", "from", "what", "when", "where", "how", "why",
+        "who", "which", "this", "that", "these", "those", "it", "its",
+        "do", "does", "did", "will", "would", "can", "could", "may",
+        "might", "shall", "should", "has", "have", "had", "not", "no",
+        "if", "about", "into", "than", "then", "also", "very", "just",
+        "each", "all", "any", "both", "some", "such", "only", "need",
+        "needed", "before", "after", "during", "other", "more", "most",
+    }
+
+    # Remove special characters
     cleaned = re.sub(r'[^\w\s-]', " ", query)
-    terms = [t.strip() for t in cleaned.split() if t.strip()]
+    terms = [t.strip().lower() for t in cleaned.split() if t.strip()]
+    # Remove stop words
+    terms = [t for t in terms if t not in STOP_WORDS and len(t) > 1]
+
     if not terms:
         return ""
+
     # Join with AND for BM25 relevance
     return " AND ".join(terms)
 
