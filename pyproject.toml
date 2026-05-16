@@ -36,13 +36,22 @@ pdf = ["pypdf>=4.0"]
 docx = ["python-docx>=1.0"]
 keywords = ["yake>=0.4.8"]
 ocr = ["pytesseract>=0.3", "pdf2image>=1.16"]
+pptx = ["python-pptx>=1.0"]
+epub = ["ebooklib>=0.17", "beautifulsoup4>=4.0"]
+odt = ["odfpy>=1.4"]
+rtf = ["striprtf>=0.0"]
 llm = ["httpx>=0.27"]
 postgres = ["psycopg2-binary>=2.9"]
 all = [
     "rag-kit[web]",
     "rag-kit[pdf]",
     "rag-kit[docx]",
+    "rag-kit[pptx]",
+    "rag-kit[epub]",
+    "rag-kit[odt]",
+    "rag-kit[rtf]",
     "rag-kit[keywords]",
+    "rag-kit[ocr]",
     "rag-kit[llm]",
     "rag-kit[postgres]",
 ]

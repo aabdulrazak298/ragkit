@@ -211,6 +211,52 @@ class RAGSystem:
             doc = Document(path)
             text = "\n".join(p.text for p in doc.paragraphs)
             source_type = "docx"
+        elif ext == ".pptx":
+            try:
+                from pptx import Presentation
+            except ImportError:
+                raise ImportError("Install rag-kit[pptx] for PPTX support")
+            prs = Presentation(path)
+            text = "\n".join(
+                shape.text for slide in prs.slides
+                for shape in slide.shapes if hasattr(shape, "text")
+            )
+            source_type = "pptx"
+        elif ext == ".epub":
+            try:
+                import ebooklib
+                from ebooklib import epub
+            except ImportError:
+                raise ImportError("Install rag-kit[epub] for EPUB support")
+            book = epub.read_epub(path)
+            text = "\n".join(
+                item.get_content().decode("utf-8", errors="ignore")
+                for item in book.get_items()
+                if item.get_type() == ebooklib.ITEM_DOCUMENT
+            )
+            # Strip HTML tags
+            import re
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = re.sub(r"\s+", " ", text).strip()
+            source_type = "epub"
+        elif ext == ".odt":
+            try:
+                from odf import text, teletype
+                from odf.opendocument import load
+            except ImportError:
+                raise ImportError("Install rag-kit[odt] for ODT support")
+            doc = load(path)
+            paras = doc.getElementsByType(text.P)
+            text = "\n".join(teletype.retrieveText(p) for p in paras)
+            source_type = "odt"
+        elif ext == ".rtf":
+            try:
+                from striprtf.striprtf import rtf_to_text
+            except ImportError:
+                raise ImportError("Install rag-kit[rtf] for RTF support")
+            with open(path, encoding="utf-8", errors="ignore") as f:
+                text = rtf_to_text(f.read())
+            source_type = "rtf"
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
