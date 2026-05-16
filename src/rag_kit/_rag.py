@@ -36,6 +36,16 @@ def _has_meaningful_text(text: str, min_words: int = 10) -> bool:
     return len(words) / len(tokens) > 0.3
 
 
+def _clean_text(text: str) -> str:
+    """Remove surrogate characters that crash UTF-8 encode/decode.
+
+    Some PDF extractors produce surrogate characters (U+D800-U+DFFF)
+    which Python's utf-8 codec refuses to encode.  This replaces them
+    with '?' before any hash computation or chunk storage.
+    """
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
 class QueryResult:
     """Result of a query() call — answer text + citations."""
 
@@ -125,7 +135,7 @@ class RAGSystem:
 
         resp = httpx.get(url, timeout=30, follow_redirects=True)
         resp.raise_for_status()
-        text = resp.text
+        text = _clean_text(resp.text)
 
         # Content hash for dedup
         content_hash = compute_content_hash(text)
@@ -270,6 +280,9 @@ class RAGSystem:
             source_type = "rtf"
         else:
             raise ValueError(f"Unsupported file type: {ext}")
+
+        # Clean surrogates from extracted text before hashing or chunking
+        text = _clean_text(text)
 
         # Content hash for dedup
         content_hash = compute_content_hash(text)
