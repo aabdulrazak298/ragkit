@@ -17,6 +17,25 @@ DEFAULT_CHUNK_OVERLAP = 200
 DEFAULT_SEARCH_THRESHOLD = 0.6
 
 
+def _has_meaningful_text(text: str, min_words: int = 10) -> bool:
+    """Check if extracted text has enough real content for RAG.
+
+    Scanned/image PDFs often return empty or gibberish text.
+    """
+    import re
+
+    text = text.strip()
+    if not text:
+        return False
+    words = re.findall(r"[A-Za-z]{2,}", text)
+    if len(words) < min_words:
+        return False
+    tokens = text.split()
+    if not tokens:
+        return False
+    return len(words) / len(tokens) > 0.3
+
+
 class QueryResult:
     """Result of a query() call — answer text + citations."""
 
@@ -161,6 +180,29 @@ class RAGSystem:
             reader = PdfReader(path)
             text = "\n".join(page.extract_text() for page in reader.pages)
             source_type = "pdf"
+
+            # Check if the text is meaningful (scanned PDFs extract nothing)
+            if not _has_meaningful_text(text):
+                # Try OCR if available
+                try:
+                    import pytesseract
+                    from pdf2image import convert_from_path
+
+                    images = convert_from_path(path)
+                    ocr_text = "\n".join(pytesseract.image_to_string(img) for img in images)
+                    if _has_meaningful_text(ocr_text):
+                        text = ocr_text
+                    else:
+                        raise ValueError(
+                            f"PDF appears to be scanned images with no extractable text. "
+                            f"Install tesseract-ocr + pytesseract + pdf2image for OCR support, "
+                            f"or convert the document to text manually."
+                        )
+                except ImportError:
+                    raise ValueError(
+                        f"PDF at {path} contains no extractable text (scanned document). "
+                        f"Install rag-kit[ocr] for OCR support: pip install 'rag-kit[ocr]'"
+                    )
         elif ext == ".docx":
             try:
                 from docx import Document
