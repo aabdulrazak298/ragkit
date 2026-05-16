@@ -454,7 +454,8 @@ class Storage:
 def _fts5_query_string(query: str) -> str:
     """Convert a plain text query into an FTS5-safe query string.
 
-    Removes common stop words and joins remaining terms with AND.
+    Removes common stop words and uses OR between top meaningful terms.
+    BM25 ranking still prioritizes chunks with more matching terms.
     """
     import re
 
@@ -468,19 +469,23 @@ def _fts5_query_string(query: str) -> str:
         "if", "about", "into", "than", "then", "also", "very", "just",
         "each", "all", "any", "both", "some", "such", "only", "need",
         "needed", "before", "after", "during", "other", "more", "most",
+        "like", "make", "made", "use", "used", "using", "way", "ways",
+        "without", "within", "much", "many", "even", "well", "back",
+        "here", "there", "over", "under", "still", "yet", "already",
     }
 
     # Remove special characters
     cleaned = re.sub(r'[^\w\s-]', " ", query)
     terms = [t.strip().lower() for t in cleaned.split() if t.strip()]
-    # Remove stop words
+    # Remove stop words and single chars
     terms = [t for t in terms if t not in STOP_WORDS and len(t) > 1]
 
     if not terms:
         return ""
 
-    # Join with AND for BM25 relevance
-    return " AND ".join(terms)
+    # Use top 6 terms with OR for broader matching
+    # BM25 ranks documents with more matching terms higher
+    return " OR ".join(terms[:6])
 
 
 def compute_content_hash(text: str) -> str:

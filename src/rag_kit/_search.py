@@ -69,18 +69,24 @@ def _fuzzy_fallback(
     threshold: float,
 ) -> list[dict]:
     """Linear scan with rapidfuzz partial_ratio when FTS5 returns nothing."""
+    # Build file_id -> chunk mappings
+    chunks_with_fid: list[tuple[int, dict]] = []
+
     if file_id is not None:
-        chunks = storage.get_all_chunks(file_id)
+        # Single-file search — we know the file_id
+        for c in storage.get_all_chunks(file_id):
+            chunks_with_fid.append((file_id, c))
     else:
-        # Cross-file search: get files in namespace first
+        # Cross-file search — get files in namespace first
         files = storage.list_files(namespace=namespace)
-        chunks = []
         for f in files:
-            chunks.extend(storage.get_all_chunks(f["file_id"]))
+            fid = f["file_id"]
+            for c in storage.get_all_chunks(fid):
+                chunks_with_fid.append((fid, c))
 
     threshold_score = threshold * 100
     matches = []
-    for chunk in chunks:
+    for fid, chunk in chunks_with_fid:
         score = fuzz.partial_ratio(
             query, chunk["text"], processor=utils.default_process
         )
@@ -88,7 +94,7 @@ def _fuzzy_fallback(
             preview = extract_preview(chunk["text"], query)
             matches.append(
                 {
-                    "file_id": _get_file_id_for_chunk(storage, chunk),
+                    "file_id": fid,
                     "chunk_index": chunk["index"],
                     "text": chunk["text"],
                     "preview": preview,
@@ -119,10 +125,3 @@ def _fuzzy_rerank(
         scored.sort(key=lambda x: x["fuzz_score"], reverse=True)
         return scored
     return results
-
-
-def _get_file_id_for_chunk(storage: Any, chunk: dict) -> int:
-    """Resolve file_id from a chunk dict that might not include it directly."""
-    # Most chunks from get_all_chunks don't have file_id; we don't
-    # have a reverse mapping here, but cross-file search is an edge case
-    return 0  # Caller should handle this
