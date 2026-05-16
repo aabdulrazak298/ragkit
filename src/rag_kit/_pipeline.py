@@ -2,26 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from rag_kit._llm import LLMConfig, chat_completion
 from rag_kit._search import search as search_chunks
 from rag_kit._storage import Storage
-
-_SYNTHESIZER_PROMPT = """\
-You are a document analyst. Given a user's question and relevant excerpts
-from a document, synthesize a comprehensive answer.
-
-Each excerpt is marked with [chunk N]. Reference chunks by number when
-citing specific information.
-
-If the TOC is available, use it to understand the document structure.
-If the TOC is missing or incomplete, you may suggest updates if asked.
-
-Available tools:
-- read_toc(file_id) — returns table of contents for the file
-- update_toc(file_id, text) — updates the table of contents"""
 
 
 class Pipeline:
@@ -33,12 +18,33 @@ class Pipeline:
         llm_config: LLMConfig | None = None,
     ):
         self._storage = storage
-        self._config = llm_config or LLMConfig()
+        self._config = llm_config
+
+    def set_llm_config(self, llm_config: LLMConfig | None) -> None:
+        """Set or clear the LLM configuration after construction.
+
+        Enables the upload-first, query-later pattern:
+            rag = RAGSystem()
+            fid = rag.load_file("doc.pdf")
+            rag.set_llm_config(LLMConfig(model="gpt-4o"))
+            rag.query(fid, "Summarize this.")
+        """
+        self._config = llm_config
+
+    def _resolve_config(self, llm_config: LLMConfig | None) -> LLMConfig:
+        """Resolve config: per-call override > instance config > default."""
+        return llm_config or self._config or LLMConfig()
 
     def query(
-        self, file_id: int, question: str
+        self, file_id: int, question: str, llm_config: LLMConfig | None = None
     ) -> tuple[str, list[dict]]:
-        """Query a specific file. Returns (answer, citations)."""
+        """Query a specific file. Returns (answer, citations).
+
+        Args:
+            file_id: ID of the loaded file.
+            question: Question to answer.
+            llm_config: Optional per-query LLM config override.
+        """
         # Step 1: Deterministic retrieval via FTS5
         results = search_chunks(
             self._storage,
@@ -66,6 +72,8 @@ class Pipeline:
                 "score": r.get("score", 0),
             })
 
+        config = self._resolve_config(llm_config)
+
         # Step 3: LLM synthesis
         content_parts = [
             f"Document: {info.get('filename', 'unknown')}",
@@ -82,14 +90,21 @@ class Pipeline:
 
         answer = chat_completion(
             messages=[{"role": "user", "content": "\n".join(content_parts)}],
-            config=self._config,
+            config=config,
         )
         return answer, citations
 
     def query_by_namespace(
-        self, question: str, namespace: str | None = None
+        self, question: str, namespace: str | None = None,
+        llm_config: LLMConfig | None = None,
     ) -> tuple[str, list[dict]]:
-        """Cross-file query within a namespace (or all files)."""
+        """Cross-file query within a namespace (or all files).
+
+        Args:
+            question: Question to answer.
+            namespace: Namespace to search (None = all).
+            llm_config: Optional per-query LLM config override.
+        """
         # Search across files
         results = search_chunks(
             self._storage,
@@ -138,8 +153,9 @@ class Pipeline:
             "Reference [file N, chunk N] when citing specific information."
         )
 
+        config = self._resolve_config(llm_config)
         answer = chat_completion(
             messages=[{"role": "user", "content": "\n".join(sections)}],
-            config=self._config,
+            config=config,
         )
         return answer, citations

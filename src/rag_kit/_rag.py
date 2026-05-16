@@ -78,6 +78,17 @@ class RAGSystem:
         self._threshold = search_threshold or DEFAULT_SEARCH_THRESHOLD
         self._max_files = max_files
 
+    def set_llm_config(self, llm_config: LLMConfig | None) -> None:
+        """Set or clear the LLM configuration after construction.
+
+        Enables upload-first, query-later pattern:
+            rag = RAGSystem()
+            fid = rag.load_file("doc.pdf")
+            rag.set_llm_config(LLMConfig(model="gpt-4o"))
+            rag.query(fid, "Summarize this.")
+        """
+        self._pipeline.set_llm_config(llm_config)
+
     def _cleanup_if_needed(self):
         """Delete least recently accessed files if over max_files limit."""
         if self._max_files <= 0:
@@ -295,6 +306,7 @@ class RAGSystem:
         file_id_or_question: int | str,
         question: str | None = None,
         namespace: str | None = None,
+        llm_config: LLMConfig | None = None,
     ) -> QueryResult:
         """Ask a question about a loaded document.
 
@@ -306,6 +318,7 @@ class RAGSystem:
             file_id_or_question: File ID or question string.
             question: Question (if first arg is file_id).
             namespace: Namespace to search (if querying by namespace).
+            llm_config: Optional per-query LLM config override.
 
         Returns:
             QueryResult with .answer (str) and .citations (list[dict]).
@@ -315,18 +328,21 @@ class RAGSystem:
             answer, citations = self._pipeline.query(
                 file_id=file_id_or_question,
                 question=question,
+                llm_config=llm_config,
             )
         elif namespace is not None:
             # Mode 2: question + namespace (cross-file search)
             answer, citations = self._pipeline.query_by_namespace(
                 question=str(file_id_or_question),
                 namespace=namespace,
+                llm_config=llm_config,
             )
         else:
             # Mode 3: question only (cross-file, all namespaces)
             answer, citations = self._pipeline.query_by_namespace(
                 question=str(file_id_or_question),
                 namespace=None,
+                llm_config=llm_config,
             )
 
         return QueryResult(answer=answer, citations=citations)
