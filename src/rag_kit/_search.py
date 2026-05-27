@@ -1,8 +1,9 @@
-"""Search — FTS5 BM25 primary, rapidfuzz fuzzy re-ranking fallback.
+"""Search — rapidfuzz fuzzy matching primary, FTS5 BM25 supplement.
 
 Architecture:
-1. Primary: FTS5 BM25 full-text search via SQLite
-2. Fallback: rapidfuzz fuzzy re-ranking when FTS5 returns few results
+1. Primary: Linear scan with rapidfuzz partial_ratio across all chunks
+2. Supplement: FTS5 BM25 results merged in for exact-match boosting
+3. Both scored 0.0-1.0, deduplicated, sorted by score
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from rapidfuzz import fuzz, utils
 
 from rag_kit._processor import extract_preview
 
-DEFAULT_THRESHOLD = 0.6
+DEFAULT_THRESHOLD = 0.3
 
 
 def search(
@@ -24,7 +25,10 @@ def search(
     top_k: int = 20,
     threshold: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Search chunks using FTS5 BM25 with rapidfuzz fallback.
+    """Search chunks using rapidfuzz fuzzy matching as primary method.
+
+    Performs a linear scan of all chunks with partial_ratio fuzzy matching,
+    then supplements with FTS5 BM25 results for exact-match precision.
 
     Args:
         storage: Storage instance.
@@ -32,7 +36,7 @@ def search(
         file_id: If set, search within this file only.
         namespace: If set (no file_id), search within namespace.
         top_k: Max results to return.
-        threshold: Fuzzy re-ranking threshold (0.0-1.0).
+        threshold: Fuzzy match threshold (0.0-1.0).
 
     Returns:
         List of matching chunks sorted by relevance, each with keys:
@@ -41,43 +45,54 @@ def search(
     if threshold is None:
         threshold = DEFAULT_THRESHOLD
 
-    # Step 1: FTS5 BM25 search
-    results = storage.fts5_search(
+    # Step 1: Fuzzy linear scan (primary)
+    fuzzy_results = _fuzzy_scan(storage, query, file_id, namespace, threshold)
+
+    # Step 2: FTS5 BM25 supplement for exact-match boost
+    fts5_results = storage.fts5_search(
         query=query,
         file_id=file_id,
         namespace=namespace,
-        top_k=top_k * 2,  # Fetch extra for re-ranking
+        top_k=top_k * 2,
     )
 
-    if not results:
-        # Fallback: linear scan with fuzzy matching
-        return _fuzzy_fallback(storage, query, file_id, namespace, top_k, threshold)
+    # Step 3: Merge — fuzzy scores take priority, FTS5 results fill in gaps
+    seen = {(r["file_id"], r["chunk_index"]) for r in fuzzy_results}
+    merged = list(fuzzy_results)
 
-    # Step 2: If few results and short query, re-rank with fuzzy
-    if len(results) < 3 and len(query) < 50:
-        results = _fuzzy_rerank(results, query, threshold)
+    for r in fts5_results:
+        key = (r["file_id"], r["chunk_index"])
+        if key not in seen:
+            # Normalize FTS5 BM25 raw score to 0.0-1.0 via sigmoid-ish clamp
+            raw = r.get("score", 0)
+            norm = max(0.0, min(1.0, raw / 5.0 + 0.5))  # BM25 ~ -3 to +5
+            r["score"] = norm
+            merged.append(r)
+            seen.add(key)
 
-    return results[:top_k]
+    # Sort by score descending
+    merged.sort(key=lambda x: x["score"], reverse=True)
+    return merged[:top_k]
 
 
-def _fuzzy_fallback(
+def _fuzzy_scan(
     storage: Any,
     query: str,
     file_id: int | None,
     namespace: str | None,
-    top_k: int,
     threshold: float,
 ) -> list[dict]:
-    """Linear scan with rapidfuzz partial_ratio when FTS5 returns nothing."""
-    # Build file_id -> chunk mappings
+    """Linear scan of all chunks with rapidfuzz partial_ratio.
+
+    Always runs — no FTS5 gatekeeper.
+    """
+    # Build chunk list
     chunks_with_fid: list[tuple[int, dict]] = []
 
     if file_id is not None:
-        # Single-file search — we know the file_id
         for c in storage.get_all_chunks(file_id):
             chunks_with_fid.append((file_id, c))
     else:
-        # Cross-file search — get files in namespace first
         files = storage.list_files(namespace=namespace)
         for f in files:
             fid = f["file_id"]
@@ -87,16 +102,24 @@ def _fuzzy_fallback(
     threshold_score = threshold * 100
     matches = []
     for fid, chunk in chunks_with_fid:
-        score = fuzz.partial_ratio(
-            query, chunk["text"], processor=utils.default_process
+        chunk_text = chunk["text"]
+        # Use token_sort_ratio for word-order independence,
+        # fall back to partial_ratio for substring matches
+        pr = fuzz.partial_ratio(
+            query, chunk_text, processor=utils.default_process
         )
+        ts = fuzz.token_sort_ratio(
+            query, chunk_text, processor=utils.default_process
+        )
+        score = max(pr, ts)
+
         if score >= threshold_score:
-            preview = extract_preview(chunk["text"], query)
+            preview = extract_preview(chunk_text, query)
             matches.append(
                 {
                     "file_id": fid,
                     "chunk_index": chunk["index"],
-                    "text": chunk["text"],
+                    "text": chunk_text,
                     "preview": preview,
                     "keywords": chunk.get("keywords", []),
                     "score": score / 100.0,  # Normalize to 0-1
@@ -104,24 +127,4 @@ def _fuzzy_fallback(
             )
 
     matches.sort(key=lambda x: x["score"], reverse=True)
-    return matches[:top_k]
-
-
-def _fuzzy_rerank(
-    results: list[dict], query: str, threshold: float
-) -> list[dict]:
-    """Re-rank FTS5 results with fuzzy matching for typo tolerance."""
-    threshold_score = threshold * 100
-    scored = []
-    for r in results:
-        fuzz_score = fuzz.partial_ratio(
-            query, r["text"], processor=utils.default_process
-        )
-        if fuzz_score >= threshold_score:
-            r["fuzz_score"] = fuzz_score / 100.0
-            scored.append(r)
-
-    if scored:
-        scored.sort(key=lambda x: x["fuzz_score"], reverse=True)
-        return scored
-    return results
+    return matches

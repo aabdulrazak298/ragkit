@@ -52,6 +52,7 @@ class RAGFile(Base):
     overlap = Column(Integer, nullable=False, default=200)
     total_chunks = Column(Integer, nullable=False, default=0)
     toc = Column(Text, nullable=True)
+    section_mappings = Column(Text, nullable=True)  # JSON array of section mappings
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(_UTC))
     last_accessed = Column(DateTime, nullable=False, default=lambda: datetime.now(_UTC))
 
@@ -80,6 +81,7 @@ class RAGFile(Base):
             "total_chunks": self.total_chunks,
             "toc_present": bool(self.toc),
             "toc_length": len(self.toc) if self.toc else 0,
+            "section_mappings_present": bool(self.section_mappings),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_accessed": (
                 self.last_accessed.isoformat() if self.last_accessed else None
@@ -169,6 +171,38 @@ END"""
         _create(conn)
 
 
+# ── Schema Migration ───────────────────────────────────────────────────
+
+
+def _migrate_schema(engine: Engine):
+    """Add new columns to existing databases without data loss.
+
+    Currently migrates: rag_files.section_mappings
+    """
+    if engine.name != "sqlite":
+        return
+
+    def _migrate(conn):
+        from sqlalchemy import text
+
+        # Check if section_mappings column exists in rag_files
+        result = conn.execute(
+            text("PRAGMA table_info(rag_files)")
+        ).fetchall()
+        columns = {row[1] for row in result}
+
+        if "section_mappings" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE rag_files "
+                    "ADD COLUMN section_mappings TEXT DEFAULT NULL"
+                )
+            )
+
+    with engine.begin() as conn:
+        _migrate(conn)
+
+
 # ── Engine helpers ─────────────────────────────────────────────────────
 
 
@@ -188,6 +222,9 @@ def _create_engine(db_path: str):
 
     engine = create_engine(db_path, echo=False)
     Base.metadata.create_all(engine)
+
+    # Migrate existing database: add section_mappings column if missing
+    _migrate_schema(engine)
 
     # Set up FTS5
     _setup_fts5(engine)
@@ -339,8 +376,12 @@ class Storage:
         file_id: int | None = None,
         namespace: str | None = None,
         top_k: int = 20,
+        chunk_start: int | None = None,
+        chunk_end: int | None = None,
     ) -> list[dict]:
         """FTS5 BM25 full-text search.
+
+        Optionally scoped to a chunk index range via chunk_start/chunk_end.
 
         Only available for SQLite backend. Falls back to linear scan otherwise.
         """
@@ -373,6 +414,13 @@ class Storage:
             elif namespace is not None:
                 sql += " AND f.namespace = :namespace"
                 params["namespace"] = namespace
+
+            if chunk_start is not None:
+                sql += " AND c.chunk_index >= :chunk_start"
+                params["chunk_start"] = chunk_start
+            if chunk_end is not None:
+                sql += " AND c.chunk_index <= :chunk_end"
+                params["chunk_end"] = chunk_end
 
             sql += " ORDER BY score DESC LIMIT :top_k"
 
@@ -407,6 +455,63 @@ class Storage:
             rec.last_accessed = datetime.now(_UTC)
             db.commit()
             return rec.toc or ""
+
+    # ── Section Mappings ────────────────────────────────────────────
+
+    def set_section_mappings(self, file_id: int, mappings: list[dict]) -> bool:
+        """Store section mappings (heading → chunk range) for a file."""
+        with self.session() as db:
+            rec = db.query(RAGFile).filter(RAGFile.id == file_id).first()
+            if not rec:
+                return False
+            rec.section_mappings = json.dumps(mappings, ensure_ascii=False)
+            rec.last_accessed = datetime.now(_UTC)
+            db.commit()
+            return True
+
+    def get_section_mappings(self, file_id: int) -> list[dict]:
+        """Retrieve section mappings for a file. Returns [] if none."""
+        with self.session() as db:
+            rec = db.query(RAGFile).filter(RAGFile.id == file_id).first()
+            if not rec:
+                return []
+            rec.last_accessed = datetime.now(_UTC)
+            db.commit()
+            if not rec.section_mappings:
+                return []
+            try:
+                return json.loads(rec.section_mappings)
+            except (json.JSONDecodeError, TypeError):
+                return []
+
+    def get_chunks_by_range(
+        self, file_id: int, chunk_start: int, chunk_end: int
+    ) -> list[dict]:
+        """Get all chunks for a file within a given chunk index range."""
+        with self.session() as db:
+            chunks = (
+                db.query(RAGChunk)
+                .filter(
+                    RAGChunk.file_id == file_id,
+                    RAGChunk.chunk_index >= chunk_start,
+                    RAGChunk.chunk_index <= chunk_end,
+                )
+                .order_by(RAGChunk.chunk_index)
+                .all()
+            )
+            return [
+                {
+                    "id": c.id,
+                    "index": c.chunk_index,
+                    "text": c.chunk_text,
+                    "keywords": (
+                        json.loads(c.keywords_json) if c.keywords_json else []
+                    ),
+                    "preview": c.preview or "",
+                    "offset": c.chunk_offset,
+                }
+                for c in chunks
+            ]
 
     def delete_file(self, file_id: int) -> bool:
         with self.session() as db:
@@ -474,8 +579,8 @@ def _fts5_query_string(query: str) -> str:
         "here", "there", "over", "under", "still", "yet", "already",
     }
 
-    # Remove special characters
-    cleaned = re.sub(r'[^\w\s-]', " ", query)
+    # Remove special characters — hyphens confuse FTS5 tokenizer (e.g. "p300-p312")
+    cleaned = re.sub(r'[^\w\s]', " ", query)
     terms = [t.strip().lower() for t in cleaned.split() if t.strip()]
     # Remove stop words and single chars
     terms = [t for t in terms if t not in STOP_WORDS and len(t) > 1]

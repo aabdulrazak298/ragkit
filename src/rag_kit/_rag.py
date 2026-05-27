@@ -8,11 +8,16 @@ from typing import Any, Optional
 
 from rag_kit._llm import LLMConfig
 from rag_kit._pipeline import Pipeline
-from rag_kit._processor import process_chunks
+from rag_kit._processor import (
+    format_toc,
+    process_chunks,
+    _build_section_mappings,
+    _extract_headings_from_text,
+)
 from rag_kit._search import search
 from rag_kit._storage import Storage, compute_content_hash
 
-DEFAULT_CHUNK_SIZE = 2500
+DEFAULT_CHUNK_SIZE = 1200
 DEFAULT_CHUNK_OVERLAP = 200
 DEFAULT_SEARCH_THRESHOLD = 0.6
 
@@ -47,11 +52,13 @@ def _clean_text(text: str) -> str:
 
 
 class QueryResult:
-    """Result of a query() call — answer text + citations."""
+    """Result of a query() call — answer text + citations + optional metrics."""
 
-    def __init__(self, answer: str, citations: list[dict] | None = None):
+    def __init__(self, answer: str, citations: list[dict] | None = None,
+                 metrics: dict | None = None):
         self.answer = answer
         self.citations = citations or []
+        self.metrics = metrics or {}
 
     def __str__(self) -> str:
         return self.answer
@@ -82,11 +89,12 @@ class RAGSystem:
         max_files: int = 50,
     ):
         self._storage = Storage(db_path)
-        self._pipeline = Pipeline(self._storage, llm_config)
         self._chunk_size = default_chunk_size or DEFAULT_CHUNK_SIZE
         self._overlap = default_overlap or DEFAULT_CHUNK_OVERLAP
         self._threshold = search_threshold or DEFAULT_SEARCH_THRESHOLD
         self._max_files = max_files
+        self._pipeline = Pipeline(self._storage, llm_config,
+                                   search_threshold=self._threshold)
 
     def set_llm_config(self, llm_config: LLMConfig | None) -> None:
         """Set or clear the LLM configuration after construction.
@@ -149,6 +157,20 @@ class RAGSystem:
             overlap or self._overlap,
         )
 
+        # Auto-extract section mappings and TOC from raw text
+        headings = _extract_headings_from_text(text)
+        if headings:
+            mappings = _build_section_mappings(
+                headings,
+                chunks,
+                chunk_size or self._chunk_size,
+                overlap or self._overlap,
+            )
+            toc_text = format_toc(mappings)
+        else:
+            mappings = []
+            toc_text = ""
+
         filename = os.path.basename(url.split("?")[0]) or "unnamed"
         file_id = self._storage.create_file(
             url=url,
@@ -162,6 +184,11 @@ class RAGSystem:
             chunks=chunks,
             namespace=namespace,
         )
+        # Store auto-extracted section mappings and TOC
+        if mappings:
+            self._storage.set_section_mappings(file_id, mappings)
+        if toc_text:
+            self._storage.set_toc(file_id, toc_text)
         self._cleanup_if_needed()
         return file_id
 
@@ -206,11 +233,17 @@ class RAGSystem:
             if not _has_meaningful_text(text):
                 # Try OCR if available
                 try:
-                    import pytesseract
+                    from tesserocr import PyTessBaseAPI
                     from pdf2image import convert_from_path
 
+                    tessdata_path = os.path.expanduser("~/.local/share/tessdata")
                     images = convert_from_path(path)
-                    ocr_text = "\n".join(pytesseract.image_to_string(img) for img in images)
+                    ocr_lines = []
+                    with PyTessBaseAPI(path=tessdata_path) as api:
+                        for img in images:
+                            api.SetImage(img)
+                            ocr_lines.append(api.GetUTF8Text())
+                    ocr_text = "\n".join(ocr_lines)
                     if _has_meaningful_text(ocr_text):
                         text = ocr_text
                     else:
@@ -296,6 +329,20 @@ class RAGSystem:
             overlap or self._overlap,
         )
 
+        # Auto-extract section mappings and TOC from raw text
+        headings = _extract_headings_from_text(text)
+        if headings:
+            mappings = _build_section_mappings(
+                headings,
+                chunks,
+                chunk_size or self._chunk_size,
+                overlap or self._overlap,
+            )
+            toc_text = format_toc(mappings)
+        else:
+            mappings = []
+            toc_text = ""
+
         filename = os.path.basename(path)
         file_id = self._storage.create_file(
             url=None,
@@ -309,6 +356,11 @@ class RAGSystem:
             chunks=chunks,
             namespace=namespace,
         )
+        # Store auto-extracted section mappings and TOC
+        if mappings:
+            self._storage.set_section_mappings(file_id, mappings)
+        if toc_text:
+            self._storage.set_toc(file_id, toc_text)
         self._cleanup_if_needed()
         return file_id
 
@@ -320,6 +372,7 @@ class RAGSystem:
         question: str | None = None,
         namespace: str | None = None,
         llm_config: LLMConfig | None = None,
+        toc_first: bool = False,
     ) -> QueryResult:
         """Ask a question about a loaded document.
 
@@ -332,17 +385,25 @@ class RAGSystem:
             question: Question (if first arg is file_id).
             namespace: Namespace to search (if querying by namespace).
             llm_config: Optional per-query LLM config override.
+            toc_first: Use TOC-first retrieval (relevant for file_id queries).
 
         Returns:
             QueryResult with .answer (str) and .citations (list[dict]).
         """
         if question is not None:
             # Mode 1: file_id + question
-            answer, citations = self._pipeline.query(
-                file_id=file_id_or_question,
-                question=question,
-                llm_config=llm_config,
-            )
+            if toc_first:
+                answer, citations = self._pipeline.query_toc_first(
+                    file_id=file_id_or_question,
+                    question=question,
+                    llm_config=llm_config,
+                )
+            else:
+                answer, citations = self._pipeline.query(
+                    file_id=file_id_or_question,
+                    question=question,
+                    llm_config=llm_config,
+                )
         elif namespace is not None:
             # Mode 2: question + namespace (cross-file search)
             answer, citations = self._pipeline.query_by_namespace(
@@ -359,6 +420,37 @@ class RAGSystem:
             )
 
         return QueryResult(answer=answer, citations=citations)
+
+    def query_agentic(
+        self,
+        file_id: int,
+        question: str,
+        llm_config: LLMConfig | None = None,
+        max_turns: int = 10,
+        searcher_model: str | None = None,
+    ) -> QueryResult:
+        """Agentic RAG: LLM searches the document itself using a search tool.
+
+        The LLM decides what to search for, iterates with a search_document
+        tool, and synthesises the answer from the results it gathers.
+
+        Args:
+            file_id: ID of the loaded file.
+            question: Question to ask.
+            llm_config: Optional per-query LLM config override.
+            max_turns: Max tool-calling iterations (default 10).
+
+        Returns:
+            QueryResult with .answer and .citations.
+        """
+        answer, citations, metrics = self._pipeline.query_agentic(
+            file_id=file_id,
+            question=question,
+            llm_config=llm_config,
+            max_turns=max_turns,
+            searcher_model=searcher_model,
+        )
+        return QueryResult(answer=answer, citations=citations, metrics=metrics)
 
     # ── Search ────────────────────────────────────────────────────────
 

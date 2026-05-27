@@ -15,11 +15,17 @@ Example:
 """
 
 from rag_kit._rag import RAGSystem, LLMConfig, QueryResult
+from rag_kit._metrics import QueryMetrics, record, get_all, get_last, stats
 
 __all__ = [
     "RAGSystem",
     "LLMConfig",
     "QueryResult",
+    "QueryMetrics",
+    "record",
+    "get_all",
+    "get_last",
+    "stats",
 ]
 
 __version__ = "0.1.0"
