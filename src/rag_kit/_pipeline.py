@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from rag_kit._llm import LLMConfig, chat_completion, agentic_chat, json_completion, router_completion
+from rag_kit._reranker import rerank as semantic_rerank
 from rag_kit._search import search as search_chunks
 from rag_kit._storage import Storage
 
@@ -474,6 +475,7 @@ class Pipeline:
         # Collect unique chunks from the searcher's trace
         seen_chunks: set[tuple[int, int]] = set()
         collected_texts: list[str] = []
+        _chunk_texts: list[dict] = []  # For reranking
         for entry in trace:
             if entry["tool_name"] == "search_document":
                 result = entry["result"]
@@ -484,6 +486,24 @@ class Pipeline:
                     if chunk and (file_id, ci) not in seen_chunks:
                         seen_chunks.add((file_id, ci))
                         collected_texts.append(f"[chunk {ci}]\n{chunk['text']}")
+                        _chunk_texts.append({
+                            "chunk_index": ci,
+                            "text": chunk["text"],
+                        })
+
+        # ── Rerank collected chunks semantically before answering ─────
+        if _chunk_texts and len(_chunk_texts) > 3:
+            reranked = semantic_rerank(question, _chunk_texts, top_k=len(_chunk_texts))
+            if reranked:
+                # Rebuild collected_texts in reranked order
+                collected_texts = []
+                seen_chunks = set()
+                for r in reranked:
+                    ci = r["chunk_index"]
+                    key = (file_id, ci)
+                    if key not in seen_chunks:
+                        seen_chunks.add(key)
+                        collected_texts.append(f"[chunk {ci}]\n{r['text']}")
 
         # Check if searcher explicitly found nothing, or timed out/hit max turns with nothing
         searcher_gave_up = (
