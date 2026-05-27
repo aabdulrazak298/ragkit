@@ -1,25 +1,25 @@
 # rag-kit — Architecture Document
 
-> A standalone Python RAG library that loads text files, chunks them, stores them, searches them, and answers questions via a two-agent LLM pipeline. Zero Docker, zero n8n, zero external services. One `pip install` and it works.
+> A standalone Python RAG library that loads text files (PDF, DOCX, PPTX, EPUB, ODT, RTF, URLs, plain text), chunks them, stores them in SQLite with FTS5 full-text search, and answers questions via one of three query pipelines. Zero Docker, zero n8n, zero external services beyond the LLM API. One `pip install` and it works.
 
 ---
 
 ## 1. Philosophy
 
-**Self-contained.** The only runtime dependency is Python 3.10+. File storage uses SQLite (no database server). Chunking and search are pure Python. LLM calls are direct HTTP to DeepSeek/OpenRouter.
+**Self-contained.** The only runtime dependency is Python 3.10+. File storage uses SQLite (no database server). Chunking and search are pure Python + rapidfuzz. LLM calls are direct HTTP to OpenRouter/DeepSeek. Semantic reranking uses FlashRank (ONNX, CPU-local, no GPU needed).
 
-**Stateless per query.** The library loads files once, stores them persistently, and each query is independent. No session or conversation state.
+**Stateless per query.** The library loads files once, stores them persistently in SQLite, and each query is independent. No session or conversation state.
 
 **Layered.** Three clean layers with no circular dependencies:
 
 ```
-┌──────────────────────┐
-│    Client (query)     │  ← Two-agent LLM pipeline
-├──────────────────────┤
-│    Search + TOC       │  ← Fuzzy matching, keyword search
-├──────────────────────┤
-│  Storage + Processor  │  ← Chunking, SQLite, file loading
-└──────────────────────┘
+┌──────────────────────────────┐
+│     Query Pipelines          │  ← Standard / Agentic / TOC-First
+├──────────────────────────────┤
+│  Reranker + Search + Metrics │  ← FlashRank, FTS5+rapidfuzz, QueryMetrics
+├──────────────────────────────┤
+│  Storage + Processor + LLM   │  ← SQLite, chunking, OpenAI-compatible API
+└──────────────────────────────┘
 ```
 
 ---
@@ -29,41 +29,38 @@
 ```
 rag-kit/
 ├── README.md
-├── pyproject.toml              # Build config (setuptools or hatchling)
+├── pyproject.toml              # Build config, extras, CLI entry point
 ├── LICENSE
 │
 ├── src/
 │   └── rag_kit/
-│       ├── __init__.py         # Public API: RAGSystem, exceptions
-│       ├── _storage.py         # SQLite/PostgreSQL models + CRUD
-│       ├── _processor.py       # Text chunking, keyword extraction, preview
-│       ├── _search.py          # Fuzzy search (rapidfuzz wrapper)
-│       ├── _llm.py             # LLM client: DeepSeek + OpenRouter calls
-│       └── _pipeline.py        # Two-agent query pipeline
+│       ├── __init__.py         # Public API exports: RAGSystem, LLMConfig, QueryResult, QueryMetrics
+│       ├── _rag.py             # Main RAGSystem class — load_file, load_url, query, query_agentic, search
+│       ├── _storage.py         # SQLite models (rag_files, rag_chunks) + FTS5 + CRUD
+│       ├── _processor.py       # Chunking (chars/paragraphs), heading detection, TOC extraction, keywords
+│       ├── _search.py          # Search: rapidfuzz fuzzy primary + FTS5 BM25 supplement
+│       ├── _reranker.py        # Semantic reranker using FlashRank cross-encoder (ONNX)
+│       ├── _llm.py             # LLM client: chat_completion, agentic_chat, router_completion, json_completion
+│       ├── _pipeline.py        # Query pipelines: query, query_agentic, query_toc_first
+│       ├── _metrics.py         # QueryMetrics tracking: latency, turns, dedups, escalations
+│       └── __main__.py         # CLI entry point: load-url, load-file, query, search, list, stats, delete
 │
-├── tests/
-│   ├── test_storage.py
-│   ├── test_processor.py
-│   ├── test_search.py
-│   ├── test_pipeline.py
-│   └── fixtures/
-│       └── sample.txt          # Test text file
-│
-├── examples/
-│   ├── basic_usage.py
-│   └── custom_storage.py
-│
-└── docs/
-    └── API.md
+└── tests/
+    ├── test_storage.py
+    ├── test_processor.py
+    ├── test_search.py
+    ├── test_pipeline.py
+    └── fixtures/
+        └── sample.txt
 ```
 
-**Why private modules (`_` prefix):** The public API is a single class `RAGSystem` in `__init__.py`. Users never import from submodules.
+**Why private modules (`_` prefix):** The public API is the `RAGSystem` class in `_rag.py`, re-exported via `__init__.py`. Users never import from submodules.
 
 ---
 
 ## 3. Layer 1: Storage (SQLite)
 
-### Models (SQLAlchemy with SQLite fallback)
+### Models (SQLAlchemy ORM)
 
 **`rag_files` table**
 
@@ -74,12 +71,13 @@ rag-kit/
 | url | TEXT | Source URL (nullable for local files) |
 | file_path | TEXT | Local file path (nullable for URLs) |
 | filename | TEXT | Display name |
-| source_type | TEXT | `"url"`, `"local"`, `"pdf"`, `"docx"`, `"text"` |
+| source_type | TEXT | `"url"`, `"text"`, `"pdf"`, `"docx"`, `"pptx"`, `"epub"`, `"odt"`, `"rtf"` |
 | content_hash | TEXT | blake3 hash of raw content (for idempotent re-load) |
 | chunk_size | INTEGER | Chunk size used |
 | overlap | INTEGER | Overlap used |
 | total_chunks | INTEGER | Number of chunks |
-| toc | TEXT | Table of contents text (nullable) |
+| toc | TEXT | Table of contents text (auto-extracted, nullable) |
+| section_mappings | TEXT | JSON array of section heading → chunk range mappings |
 | created_at | TEXT (ISO 8601) | When loaded |
 | last_accessed | TEXT (ISO 8601) | When last queried |
 
@@ -91,10 +89,23 @@ rag-kit/
 | file_id | INTEGER FK | References rag_files.id (CASCADE delete) |
 | chunk_index | INTEGER | 0-based index |
 | chunk_text | TEXT | Full chunk content |
-| keywords | TEXT | Comma-separated extracted keywords (legacy) |
+| keywords | TEXT | Comma-separated extracted keywords |
 | keywords_json | TEXT | Keywords as JSON array `["kw1", "kw2", ...]` |
 | preview | TEXT | Pre-computed preview snippet |
 | chunk_offset | INTEGER | Character offset in original document |
+
+### FTS5 Virtual Table
+
+```sql
+CREATE VIRTUAL TABLE rag_chunks_fts USING fts5(
+    chunk_text,
+    content='rag_chunks',
+    content_rowid='id',
+    tokenize='porter unicode61'
+);
+```
+
+Maintained via triggers on `rag_chunks` INSERT/UPDATE/DELETE. BM25 scoring for relevance ranking.
 
 ### Connection management
 
@@ -103,15 +114,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 # Default: SQLite at ~/.rag-kit/rag.db
-# Override: engine = create_engine("postgresql://user:pass@host/db")
-
-def get_db(path: str | None = None) -> Session:
-    if path is None:
-        path = os.path.expanduser("~/.rag-kit/rag.db")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    engine = create_engine(f"sqlite:///{path}")
-    Base.metadata.create_all(engine)
-    return Session(engine)
+# Override: engine = create_engine("postgresql://user:***@host/db")
 ```
 
 ### Why SQLite over PostgreSQL
@@ -119,7 +122,7 @@ def get_db(path: str | None = None) -> Session:
 - Zero setup — no Docker, no server, no config
 - Single file — easy to backup, move, delete
 - Good enough for single-user RAG with hundreds of files
-- PostgreSQL is supported via the same SQLAlchemy models (just swap the connection string)
+- PostgreSQL supported via same SQLAlchemy models (swap connection string)
 
 ---
 
@@ -129,399 +132,408 @@ def get_db(path: str | None = None) -> Session:
 
 Two strategies, configurable:
 
-**1. Fixed-size (default)** — Pure Python, no dependencies. Same logic as current system:
+**1. Fixed-size (`chars` mode, default)** — Pure Python, no dependencies:
 
 ```python
-def chunk_by_chars(text: str, chunk_size: int = 2500, overlap: int = 200) -> list[dict]:
+def chunk_by_chars(text: str, chunk_size=1200, overlap=200) -> list[dict]:
     chunks = []
     start = 0
     while start < len(text):
         end = start + chunk_size
-        chunks.append({"text": text[start:end], "offset": start})
+        chunks.append({"text": text[start:end], "offset": start, "keywords": ""})
         start += chunk_size - overlap
     return chunks
 ```
 
-Defaults: 2500 chars per chunk, 200 chars overlap. Both configurable.
+Defaults: **1200 chars per chunk**, 200 chars overlap. Both configurable per-load and per-RAGSystem instance.
 
-**2. Content-aware (optional)** — Splits at sentence/paragraph boundaries to avoid cutting mid-sentence:
-
-```python
-def chunk_by_paragraphs(text: str, max_chars: int = 2500, overlap: int = 200) -> list[dict]:
-    """Split on paragraph boundaries (double newlines), then merge
-    until max_chars. Preserves code blocks, headings, and lists."""
-    paragraphs = re.split(r'\n\n+', text)
-    chunks = []
-    current = ""
-    offset = 0
-    for para in paragraphs:
-        if len(current) + len(para) + 1 > max_chars and current:
-            chunks.append({"text": current.strip(), "offset": offset})
-            offset += len(current) - overlap
-            current = para
-        else:
-            current += "\n\n" + para if current else para
-    if current:
-        chunks.append({"text": current.strip(), "offset": offset})
-    return chunks
-```
-
-Also preserves:
-- Code blocks (fenced with ```) — never split inside
-- Headings (`#`, `##`, `##`) — used as chunk boundaries
-- Lists (numbered, bullet) — kept intact where possible
-
-**Content hashing** — Each file stores a `blake3` hash of its content on load. Re-loading an unchanged file skips re-chunking:
+**2. Content-aware (`paragraphs` mode, optional)** — Splits on paragraph boundaries (double newlines) to avoid cutting mid-sentence:
 
 ```python
-rag.load_url("https://example.com/report.txt")  # First load
-rag.load_url("https://example.com/report.txt")  # Same hash → skip, return existing file_id
+def chunk_by_paragraphs(text: str, max_chars=1200, overlap=200) -> list[dict]:
 ```
+
+Preserves code blocks (fenced with ```), headings, and lists intact. Paragraphs are merged until `max_chars`, then split.
+
+### Heading Detection & TOC Extraction
+
+Heading detection uses regex patterns to identify:
+- "Chapter X", "Section X.Y", "Appendix A"
+- Numbered headings: "1.1", "1.1.1 Threshold Settings"
+- Bare numbered: "1 Introduction", "8 Configuration"
+- ALL CAPS short lines (common in PDF manuals)
+
+Headings are deduplicated (TOC vs body text), assigned hierarchy levels, and mapped to their chunk ranges. The result is stored as both a human-readable `toc` string and a `section_mappings` JSON array.
 
 ### Keyword extraction
 
 Uses **yake** (optional dependency — if not installed, returns empty list):
 
 ```python
-def extract_keywords(text: str, max_keywords: int = 10) -> list[str]:
+def extract_keywords(text: str, max_keywords=10) -> list[str]:
     try:
         import yake
-        kw_extractor = yake.KeywordExtractor(lan="en", n=2, dedupLim=0.7, top=max_keywords)
-        return [kw for kw, _ in kw_extractor.extract_keywords(text)]
+        extractor = yake.KeywordExtractor(lan="en", n=2, dedupLim=0.7, top=max_keywords)
+        return [kw for kw, _ in extractor.extract_keywords(text)]
     except ImportError:
         return []
 ```
 
 ### Preview extraction
 
-Given a query and text, find the best-matching region using sliding-window fuzzy matching and return a ~200-char snippet centered on the match.
+Given a query and text, finds the best-matching region using sliding-window fuzzy matching and returns a ~200-char snippet centered on the match.
+
+### Content hashing
+
+Each file stores a `blake3` (via `hashlib.blake3`) hash of its content on load. Re-loading an unchanged file in the same namespace skips re-chunking and returns the existing file_id:
+
+```python
+rag.load_file("report.pdf")           # First load → file_id=1
+rag.load_file("report.pdf")           # Same hash → return file_id=1
+```
 
 ### File loading
 
-Supports:
-- `.txt`, `.md`, `.csv`, `.json`, `.xml`, `.html`, `.py`, `.js`, etc. (plain text)
-- `.pdf` — via optional `pypdf`
-- `.docx` — via optional `python-docx`
-- URL fetching — via optional `httpx` or `requests`
+Supports file types with optional dependencies (each a pip extra):
+- `.txt`, `.md`, `.csv`, `.json`, `.xml`, `.html`, `.py`, `.js`, `.rs`, `.yaml`, `.yml`, `.log` — plain text (no extra)
+- `.pdf` — via `rag-kit[pdf]` (pypdf)
+- `.docx` — via `rag-kit[docx]` (python-docx)
+- `.pptx` — via `rag-kit[pptx]` (python-pptx)
+- `.epub` — via `rag-kit[epub]` (ebooklib + beautifulsoup4)
+- `.odt` — via `rag-kit[odt]` (odfpy)
+- `.rtf` — via `rag-kit[rtf]` (striprtf)
+- URL fetching — via `rag-kit[web]` (httpx)
 
-Each optional dependency is a pip extra: `rag-kit[pdf]`, `rag-kit[docx]`, `rag-kit[web]`, or `rag-kit[all]`.
+**OCR for scanned PDFs:** When pypdf returns no extractable text, falls back to tesserocr (`rag-kit[ocr]`) for OCR on rendered page images:
+
+```python
+from tesserocr import PyTessBaseAPI
+from pdf2image import convert_from_path
+images = convert_from_path(path)
+with PyTessBaseAPI(path=tessdata_path) as api:
+    for img in images:
+        api.SetImage(img)
+        ocr_lines.append(api.GetUTF8Text())
+```
+
+**Surrogate character handling:** PDF extractors sometimes produce surrogate characters (U+D800-U+DFFF). The loader replaces them with `?` before hashing or chunking.
 
 ---
 
 ## 5. Layer 3: Search
 
-### Primary: SQLite FTS5 (BM25)
+### Primary: rapidfuzz fuzzy matching (linear scan)
 
-Uses **SQLite FTS5** — a full-text index built into Python's `sqlite3` module (zero dependencies). Maintained via triggers on `rag_chunks`. Scoring uses BM25, the standard information-retrieval ranking function.
-
-```sql
--- Virtual FTS5 table
-CREATE VIRTUAL TABLE rag_chunks_fts USING fts5(
-    chunk_text,
-    content='rag_chunks',
-    content_rowid='id',
-    tokenize='porter unicode61'
-);
-
--- Triggers to keep FTS index in sync
-CREATE TRIGGER rag_chunks_ai AFTER INSERT ON rag_chunks BEGIN
-    INSERT INTO rag_chunks_fts(rowid, chunk_text)
-    VALUES (new.id, new.chunk_text);
-END;
-```
+Uses **rapidfuzz** for token-order-independent fuzzy matching as the primary search method:
 
 ```python
-def search(query: str, file_id: int | None = None, top_k: int = 20) -> list[dict]:
-    sql = """
-        SELECT c.file_id, c.chunk_index, c.chunk_text, c.preview,
-               bm25(rag_chunks_fts, 0.0, 0.0, 0.0, 1.0) AS score
-        FROM rag_chunks_fts
-        JOIN rag_chunks c ON c.id = rag_chunks_fts.rowid
-        WHERE rag_chunks_fts MATCH ?
-    """
-    params = [query]
-    if file_id is not None:
-        sql += " AND c.file_id = ?"
-        params.append(file_id)
-    sql += " ORDER BY score DESC LIMIT ?"
-    params.append(top_k)
-    # ...
+def search(query, storage, file_id=None, namespace=None, top_k=20, threshold=0.3):
+    # Step 1: Fuzzy linear scan (primary)
+    fuzzy_results = _fuzzy_scan(...)
+    # Step 2: FTS5 BM25 supplement for exact-match boost
+    fts5_results = storage.fts5_search(...)
+    # Step 3: Merge — fuzzy scores take priority, FTS5 fills in gaps
+    merged = list(fuzzy_results) + unseen_fts5_results
+    merged.sort(key=lambda x: x["score"], reverse=True)
+    return merged[:top_k]
 ```
 
-**Benefits over rapidfuzz:**
-- BM25 relevance ranking (term frequency + inverse document frequency)
-- Built-in tokenization (stemming, unicode normalization)
-- 10-100x faster for large collections (pre-indexed vs linear scan)
-- Zero additional dependencies
+Uses `rapidfuzz.partial_ratio` for substring matching and `token_sort_ratio` for word-order independence, taking the max of both.
 
-### Fallback: rapidfuzz (for short queries / fuzzy matching)
+### Supplement: FTS5 BM25 (SQLite built-in)
 
-When FTS5 returns few results (rare terms, typos), fall back to `rapidfuzz.partial_ratio` on the top FTS5 results for fuzzy re-ranking:
+BM25 relevance scoring provides exact-match precision to complement the fuzzy scan. Results with no fuzzy match but strong BM25 scores are merged in after normalization.
+
+### Semantic reranker (FlashRank)
+
+In the agentic pipeline, collected chunks are re-ranked by semantic relevance before synthesis:
 
 ```python
-from rapidfuzz import fuzz, utils
-
-def rerank(chunks: list[dict], query: str, threshold: float = 0.6) -> list[dict]:
-    """Re-rank FTS5 results with fuzzy matching for typo tolerance."""
-    scored = []
-    for c in chunks:
-        fuzz_score = fuzz.partial_ratio(query, c["chunk_text"],
-                                        processor=utils.default_process)
-        if fuzz_score >= threshold * 100:
-            c["fuzz_score"] = fuzz_score
-            scored.append(c)
-    scored.sort(key=lambda x: x["fuzz_score"], reverse=True)
-    return scored
+from flashrank import Ranker
+reranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2")
+reranked = reranker.rerank(RerankRequest(query=query, passages=passages))
 ```
+
+- Model: `ms-marco-MiniLM-L-12-v2` (good balance of speed + accuracy)
+- CPU-only, ONNX runtime, no GPU needed
+- Applies only in the **synthesizer** stage of agentic queries (not per-turn)
+- Falls back gracefully if `flashrank` is not installed
 
 ### Cross-file search
 
-Search without specifying `file_id` — query across all loaded documents:
+Search without specifying `file_id` — query across all loaded documents (optionally scoped by namespace):
 
 ```python
-rag.search("safety procedures")  # → [(file_id=1, chunk_index=3, score=42.5), ...]
+rag.search("safety procedures")                     # all files
+rag.search("safety", namespace="project-alpha")      # scoped to namespace
 ```
-
-### TOC management
-
-Files have an optional table of contents stored as plain text in the `toc` column. The TOC is set/updated by the LLM pipeline after reading a file, to guide future searches. Keywords are stored as JSON in a separate column (`keywords_json`) instead of comma-separated text, enabling array operations in queries.
 
 ---
 
 ## 6. Layer 4: LLM Client
 
-### Two models
+### Default model
 
-| Role | Provider | Model | Purpose |
-|------|----------|-------|---------|
-| Index finder | DeepSeek | `deepseek-chat` | Given query + search results, picks relevant chunk indices |
-| Synthesizer | OpenRouter | `deepseek/deepseek-v3.2` | Reads chunks, reads TOC, generates answer |
+```python
+_DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
+```
 
-### Configuration
+All LLM calls are OpenAI-compatible chat completions via httpx.
+
+### Four call types
+
+| Function | Purpose | Model used |
+|----------|---------|------------|
+| `chat_completion()` | Standard text generation | Configurable (default: `deepseek-v4-flash`) |
+| `agentic_chat()` | Multi-turn tool-calling loop | Configurable (typically cheap model) |
+| `router_completion()` | Lightweight classification/routing | `google/gemini-2.0-flash-lite-001` |
+| `json_completion()` | Structured JSON output | `google/gemini-2.0-flash-lite-001` |
+
+### LLMConfig
 
 ```python
 @dataclass
 class LLMConfig:
-    """LLM provider settings. All optional — override what you need."""
-    # Index finder (chunk selector)
-    index_provider: str = "deepseek"
-    index_model: str = "deepseek-chat"
-    index_api_key: str | None = None  # Uses env var DEEPSEEK_API_KEY
-    index_base_url: str = "https://api.deepseek.com"
-
-    # Synthesizer
-    synth_provider: str = "openrouter"
-    synth_model: str = "deepseek/deepseek-v3.2"
-    synth_api_key: str | None = None  # Uses env var OPENROUTER_KEY
-    synth_base_url: str = "https://openrouter.ai/api/v1"
-
-    max_iterations: int = 15      # Tool calls per agent
+    api_key: str | None = None       # Falls back to OPENROUTER_KEY env var
+    model: str = "deepseek/deepseek-v4-flash"
+    base_url: str = "https://openrouter.ai/api/v1"
     temperature: float = 0.1
 ```
 
-### API call format
-
-Both providers use OpenAI-compatible chat completions:
+### agentic_chat (multi-turn tool calling)
 
 ```python
-import httpx
-
-def chat_completion(
-    messages: list[dict],
-    api_key: str,
-    base_url: str,
-    model: str,
-    temperature: float = 0.1,
-) -> str:
-    resp = httpx.post(
-        f"{base_url}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+def agentic_chat(messages, tools, tool_executor, config, max_turns=10, timeout=45, total_timeout=180):
+    """Multi-turn tool-calling loop.
+    - LLM requests tool calls → executor returns result → fed back as tool messages
+    - Context window management: if token estimate exceeds 80K, trims old turns
+    - On max_turns exhausted: one final summarization call without tools
+    - Returns (final_answer, trace) where trace records each tool call
+    """
 ```
+
+Features:
+- Context window trimming (preserves system + user + last 3 tool exchanges)
+- Per-request timeout + total wall-clock deadline
+- Returns full trace of tool calls for citation building
 
 ---
 
-## 7. Layer 5: Pipeline (Query)
+## 7. Query Pipelines
 
-### Flow
+Three query pipelines, selectable via `RAGSystem` methods:
+
+### Pipeline A: Standard Query (`rag.query()`)
 
 ```
-                         query [+ namespace]
-                              │
-                              ▼
-┌─────────────────────────────────────────────────┐
-│           Step 1: Retrieval (deterministic)      │
-│                                                  │
-│  FTS5 BM25 search across chunks                 │
-│  If namespace: filter by namespace               │
-│  If file_id: filter by file_id                   │
-│  If neither: search ALL files (cross-file)       │
-│                                                  │
-│  Output: top_k chunk indices with scores         │
-│          (citations: file_id, namespace,          │
-│           chunk_index, score)                    │
-└─────────────────────┬────────────────────────────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────┐
-│            Step 2: Synthesizer (LLM)             │
-│                                                  │
-│  Agent receives: top chunk texts + TOC + query   │
-│  Reads full context from selected chunks         │
-│  Optionally updates TOC for future queries       │
-│                                                  │
-│  Output: natural language answer                 │
-│          (with citation references)              │
-└─────────────────────┬────────────────────────────┘
-                      │
-                      ▼
-                   answer
+User Question
+     │
+     ▼
+┌──────────────────────────────┐
+│  FTS5/rapidfuzz Retrieval    │  ← deterministic, no LLM cost
+│  Top-10 chunks with scores   │
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│  LLM Synthesis (1 call)      │  ← reads chunks + TOC, produces answer
+│  Answer (no chunk references)│
+└──────────────────────────────┘
 ```
 
-### Step 1: Retrieval (deterministic, no LLM cost)
+- Fastest path (~$0.0004/query for the LLM call)
+- Retrieval is deterministic — no LLM cost for search
+- Answerer prompt explicitly forbids quoting chunk numbers
 
-Uses FTS5 BM25 scoring to select the most relevant chunks. No LLM call needed — saves money and is faster.
+### Pipeline B: Agentic Query (`rag.query_agentic()`)
 
-```python
-def retrieve(
-    query: str,
-    file_id: int | None = None,
-    namespace: str | None = None,
-    top_k: int = 10,
-) -> list[dict]:
-    """FTS5 BM25 retrieval with optional fuzzy re-ranking.
-
-    - file_id given: search within that file only
-    - namespace given (no file_id): search across all files in namespace
-    - neither: cross-file search across all namespaces
-    """
-    results = fts5_search(
-        query,
-        file_id=file_id,
-        namespace=namespace,
-        top_k=top_k * 2,
-    )
-    if len(results) < 3 and len(query) < 50:
-        results = fuzzy_rerank(results, query)
-    return results[:top_k]
+```
+User Question
+     │
+     ▼
+┌──────────────────────────────┐
+│  PLANNER (strong model)      │  ← deepseek-v4-flash
+│  Analyses TOC + question     │  ~$0.40/M → 1 call
+│  Produces search strategy    │
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│  EXECUTOR (cheap model)      │  ← qwen/qwen3.5-flash-02-23 (default)
+│  Tool-calling loop           │  ~$0.065/M → 3-10 calls
+│  search_document tool        │
+│  Features:                   │
+│  • Dedup cache               │
+│  • 3 consecutive empty →     │
+│    escalate to advisor       │
+│  • Context window trimming   │
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│  RERANKER (FlashRank ONNX)   │  ← Free (CPU-local)
+│  Semantic reordering         │  Re-ranks ALL collected chunks
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│  SYNTHESIZER (strong model)  │  ← deepseek-v4-flash
+│  Reads reranked chunks       │  ~$0.40/M → 1 call
+│  Final answer                │
+└──────────────────────────────┘
 ```
 
-Returns citations: `{"file_id": 1, "namespace": "project-a", "chunk_index": 3, "score": 42.5, "text": "..."}`
+Key features:
+- **Dedup cache**: Normalizes query keys, skips re-execution for repeated searches
+- **Escalation to advisor**: After 3 consecutive searches with no new chunks, calls the strong model for alternative search terms
+- **TOC keyword hints**: Before search, matches question keywords against TOC lines for a head start
+- **Metrics tracking**: plannner_latency, executor_turns, searches, dedup_hits, escalations, chunks_found, total_latency
 
-### Step 2: Synthesizer (single LLM agent)
+### Pipeline C: TOC-First Query (`rag.query(toc_first=True)`)
 
-```python
-SYSTEM_PROMPT = """\
-You are a document analyst. Given a user's question and relevant excerpts
-from a document, synthesize a comprehensive answer.
-
-Each excerpt is marked with [chunk N]. Reference chunks by number when
-citing specific information.
-
-Available tools:
-- read_toc(file_id) — returns table of contents for the file
-- update_toc(file_id, text) — updates the table of contents for future
-  searches (use your judgment to create a meaningful TOC)
-
-If the TOC exists, use it to understand the document structure.
-If the TOC is missing or incomplete, consider creating/updating it."""
+```
+User Question
+     │
+     ▼
+┌──────────────────────────────┐
+│  ROUTER (gemini 2.0 flash)   │
+│  TECHNICAL vs GENERAL?       │  ← GENERAL → fallback to Standard
+└──────────┬───────────────────┘
+           │ (TECHNICAL)
+           ▼
+┌──────────────────────────────┐
+│  HEADING SELECTION (JSON)    │  ← Asks LLM which TOC headings
+│  Picks ≤10 relevant headings │    are relevant to the question
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│  TARGETED SEARCH             │  ← FTS5 scoped to selected sections
+│  Searches within heading     │
+│  chunk ranges                │
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│  CONTEXT EXPANSION           │  ← ±1 adjacent chunks + parent section headers
+│  ± window around matches     │
+│  + parent section headers    │
+└──────────┬───────────────────┘
+           │
+           ▼
+┌──────────────────────────────┐
+│  SYNTHESIS (strong model)    │  ← deepseek-v4-flash
+│  Section-aware answer        │  References section names in answer
+└──────────────────────────────┘
 ```
 
-**Input:** Top-k chunk texts (with chunk numbers) + TOC + user query.
-**Output:** Natural language answer. If the LLM API returns structured citations, include `[chunk N]` markers in the answer.
-
-### Why deterministic retrieval instead of Agent 1?
-
-| Approach | Cost per query | Latency | Quality |
-|----------|---------------|---------|---------|
-| LLM picks indices (Agent 1) | ~$0.01 (5K tokens) | 3-8s | Good, but over-picks |
-| FTS5 BM25 (deterministic) | $0 | <100ms | Better ranking, consistent |
-
-BM25 is a well-understood information retrieval algorithm. For text files (not conversational queries), it consistently outperforms an LLM at picking relevant chunks — and costs nothing. The two-agent pattern is kept as an **opt-in** for cases where semantic understanding is needed (e.g., "find chunks that contradict each other").
+Designed for technical manuals / long structured documents. Each fallback path degrades gracefully to the Standard pipeline.
 
 ### Citations in answers
 
-The public API returns citations alongside the answer:
+All pipelines return citations alongside the answer:
 
 ```python
 result = rag.query(file_id, "What safety protocols exist?")
-# result.answer → "Three protocols exist: lockout/tagout [chunk 3], PPE [chunk 7], ..."
-# result.citations → [{"file_id": 1, "namespace": "project-a", "chunk_index": 3, "score": 42.1},
-#                     {"file_id": 1, "namespace": "project-a", "chunk_index": 7, "score": 38.5}]
-
-# Query by namespace (no file_id) — all files in namespace are searched
-result = rag.query("What are the findings?", namespace="project-beta")
-# result.citations includes file_id so you know which file each chunk came from
+# result.answer → "Three protocols exist: lockout/tagout, PPE, ..."
+# result.citations → [{"file_id": 1, "namespace": "default", "chunk_index": 3, "score": 42.1}, ...]
 ```
+
+The answer is clean natural language — no chunk numbers leaked into the user-facing output.
+
+### Answerer prompt rule
+
+All pipelines use: *"Do NOT reference chunk numbers, internal identifiers, or implementation details in your answer — just explain naturally."*
 
 ---
 
 ## 8. Public API
 
 ```python
-from rag_kit import RAGSystem
+from rag_kit import RAGSystem, LLMConfig, QueryResult, QueryMetrics
 
-# Initialize (single instance for all projects)
-rag = RAGSystem()
+# Initialize
+rag = RAGSystem(
+    db_path="~/.rag-kit/rag.db",       # SQLite path
+    llm_config=LLMConfig(),            # API key from OPENROUTER_KEY env var
+    default_chunk_size=1200,           # Override default
+    default_overlap=200,
+    search_threshold=0.6,              # Fuzzy match threshold
+    max_files=50,                      # Auto-cleanup oldest files when exceeded
+)
 
-# Load a document from URL
-fid = rag.load_url("https://example.com/report.txt")
+# Load a document
+fid = rag.load_file("/path/to/doc.pdf", namespace="project-alpha")
+# or from URL
+fid = rag.load_url("https://example.com/doc.txt", namespace="docs")
 
-# Load into a specific namespace (project)
-fid_a = rag.load_file("/path/to/doc.pdf", namespace="project-alpha")
-fid_b = rag.load_file("/path/to/report.txt", namespace="project-beta")
+# Standard query
+result = rag.query(fid, "What is this about?")
 
-# Or with custom chunk settings
-fid = rag.load_url("https://example.com/long.txt",
-                   namespace="docs", chunk_size=2000, overlap=100)
+# TOC-First query (for structured manuals)
+result = rag.query(fid, "How to configure IP address?", toc_first=True)
 
-# Ask a question (namespace reduces noise from unrelated files)
-answer = rag.query(fid, "What does this say about safety procedures?")
-answer = rag.query("What are the findings?", namespace="project-alpha")
-# Returns: str — the synthesized answer (with citations)
+# Agentic query (LLM searches iteratively)
+result = rag.query_agentic(fid, "What are all the safety warnings?",
+                           searcher_model="qwen/qwen3.5-flash-02-23")
 
-# List files per namespace
-rag.list(namespace="project-alpha")   # only files in that namespace
-rag.list()                            # all files across namespaces
+# Cross-file by namespace
+result = rag.query("What are the findings?", namespace="project-alpha")
 
-# Search across all files, or within a namespace
-rag.search("safety keywords")                             # global
-rag.search("keywords", namespace="project-alpha")         # scoped
-
-# Low-level operations
-rag.get_chunk(fid, index=3)        # → full chunk text
-rag.get_toc(fid)                   # → TOC text or ""
-rag.update_toc(fid, "new toc")     # → None
+# Direct keyword search (no LLM)
+results = rag.search("safety keywords", namespace="project-alpha")
 
 # File management
-rag.delete_file(fid)               # → bool
-rag.stats()                        # → {total_files, total_chunks, ...}
+rag.list(namespace="project-alpha")
+rag.delete_file(fid)
+rag.stats()                    # → {total_files, total_chunks, ...}
+rag.get_toc(fid)               # → auto-extracted TOC
+rag.get_chunk(fid, index=3)    # → full chunk content
+rag.update_toc(fid, "new toc")
+
+# Upload-first, query-later pattern
+rag = RAGSystem()
+fid = rag.load_file("doc.pdf")
+rag.set_llm_config(LLMConfig(model="deepseek/deepseek-v4-flash"))
+result = rag.query(fid, "Summarize this.")
+
+# QueryResult
+result.answer       # → string
+result.citations    # → list of {file_id, namespace, chunk_index, score}
+result.metrics      # → dict (only for query_agentic: latency, turns, etc.)
+```
+
+### QueryMetrics
+
+```python
+from rag_kit import QueryMetrics, record, get_all, get_last, stats
+
+# Per-query metrics are logged automatically
+# QueryMetrics tracks:
+#   - method: "standard", "agentic", "toc_first"
+#   - planner_latency, executor_turns, executor_searches
+#   - executor_dedup_hits, executor_escalations, executor_chunks_found
+#   - synthesizer_latency, total_latency, found_content
+
+stats()            # Aggregate: avg latency, turns, found_rate, etc.
+get_last(5)        # Last N query metrics as dicts
+get_all()          # All recorded metrics
 ```
 
 ### Configuration on init
 
 ```python
 rag = RAGSystem(
-    db_path="~/my_rag.db",                    # SQLite path or postgres URL
+    db_path="~/my_rag.db",
     llm_config=LLMConfig(
-        index_api_key="sk-ds-...",             # or set env DEEPSEEK_API_KEY
-        synth_api_key="sk-or-...",             # or set env OPENROUTER_KEY
-        synth_model="openai/gpt-4o-mini",      # override model
+        api_key="sk-or-...",              # or set env OPENROUTER_KEY
+        model="deepseek/deepseek-v4-flash",   # or any OpenRouter model
+        base_url="https://openrouter.ai/api/v1",
     ),
-    default_chunk_size=2000,                   # override default 2500
-    default_overlap=150,                       # override default 200
-    search_threshold=0.65,                     # override default 0.6
+    default_chunk_size=1200,              # override default
+    default_overlap=200,
+    search_threshold=0.6,
+    max_files=50,                         # auto-cleanup to 50 files
 )
 ```
 
@@ -529,9 +541,8 @@ rag = RAGSystem(
 
 | Variable | Purpose |
 |----------|---------|
-| `DEEPSEEK_API_KEY` | API key for index-finder agent (DeepSeek) |
-| `OPENROUTER_KEY` | API key for synthesizer agent (OpenRouter) |
-| `RAG_KIT_DB_PATH` | Override default database path |
+| `OPENROUTER_KEY` | API key for LLM calls (OpenRouter) |
+| `RAG_KIT_DB_PATH` | Override default database path (`~/.rag-kit/rag.db`) |
 | `RAG_KIT_CHUNK_SIZE` | Override default chunk size |
 | `RAG_KIT_CHUNK_OVERLAP` | Override default overlap |
 | `RAG_KIT_SEARCH_THRESHOLD` | Override default search threshold |
@@ -542,71 +553,62 @@ rag = RAGSystem(
 
 ### Core (always installed)
 
-| Package | Purpose | Minimal install | 
-|---------|---------|-----------------|
-| `sqlalchemy` | ORM for SQLite/PostgreSQL | yes |
-| `rapidfuzz` | Fuzzy re-ranking fallback for search | yes |
-
-`sqlalchemy` is used for ORM convenience. For SQLite-only usage, raw `sqlite3` with FTS5 (built into Python) is also available — `sqlalchemy` is optional at the cost of manual query construction.
+| Package | Purpose |
+|---------|---------|
+| `sqlalchemy>=2.0` | ORM for SQLite |
+| `rapidfuzz>=3.0` | Fuzzy matching primary search |
 
 ### Extras (optional)
 
 | Extra | Packages | Purpose |
 |-------|----------|---------|
-| `[web]` | `httpx` | Fetch URLs |
+| `[web]` | `httpx` | Fetch URLs + LLM API calls |
 | `[pdf]` | `pypdf` | Read PDF files |
 | `[docx]` | `python-docx` | Read DOCX files |
-| `[keywords]` | `yake` | Automatic keyword extraction |
-| `[llm]` | `httpx` | LLM API calls (needed for query pipeline) |
+| `[pptx]` | `python-pptx` | Read PPTX files |
+| `[epub]` | `ebooklib`, `beautifulsoup4` | Read EPUB files |
+| `[odt]` | `odfpy` | Read ODT files |
+| `[rtf]` | `striprtf` | Read RTF files |
+| `[keywords]` | `yake` | Automatic keyword extraction for chunks |
+| `[ocr]` | `pytesseract`, `pdf2image` | OCR for scanned PDFs |
+| `[llm]` | `httpx` | LLM API calls (needed for query pipelines) |
 | `[postgres]` | `psycopg2-binary` | PostgreSQL backend |
 | `[all]` | All of the above | Everything |
 
-### Runtime detection
-
-```python
-# _processor.py
-def _extract_keywords(text: str) -> list[str]:
-    try:
-        import yake
-        ...
-    except ImportError:
-        return []
-
-# _storage.py
-def _detect_backend(path: str) -> str:
-    if path.startswith("postgresql"):
-        try:
-            import psycopg2
-        except ImportError:
-            raise ImportError("Install rag-kit[postgres] for PostgreSQL support")
-```
+**Semantic reranker** (`flashrank`) is loaded at runtime — not listed as a pip extra since it's only used in the agentic pipeline and degrades gracefully.
 
 ---
 
-## 10. CLI (Future / Bonus)
+## 10. CLI
 
-A simple command-line interface in `cli.py`:
+Fully implemented via `__main__.py` and registered as a console script in `pyproject.toml`:
 
 ```bash
 # Load a file
-rag-kit load https://example.com/doc.txt
+rag-kit load-file ./report.pdf --namespace "project-a"
 
-# Load with custom chunking
-rag-kit load ./report.pdf --name "Q3 Report" --chunk-size 1500
+# Load a URL
+rag-kit load-url https://example.com/doc.txt
 
 # Ask a question
-rag-kit query 1 "What are the key findings?"
+rag-kit query "What are the key findings?" 1
+
+# Search keywords (no LLM)
+rag-kit search "safety procedures" --namespace project-a
 
 # List files
-rag-kit list
+rag-kit list --namespace project-a
 
-# Export to JSON
-rag-kit export 1 --format json
+# Database stats
+rag-kit stats
+
+# Delete a file
+rag-kit delete 1
 ```
 
 ---
 
-## 11. What We Remove (vs Current System)
+## 11. What We Remove (vs Previous System)
 
 | Current component | Gone? | Replaced by |
 |-------------------|-------|-------------|
@@ -621,39 +623,33 @@ rag-kit export 1 --format json
 
 ---
 
-## 12. Implementation Order
+## 12. Implementation Status
 
-### Phase 1: Core (pure Python, zero optional deps)
-1. `__init__.py` — RAGSystem class skeleton
-2. `_processor.py` — chunk_text(), extract_keywords(), extract_preview()
-3. `_storage.py` — SQLite models + CRUD + FTS5 table + triggers
-4. `_search.py` — FTS5 BM25 search + rapidfuzz re-ranking fallback
-5. Tests for all of the above
-
-### Phase 2: LLM Pipeline
-6. `_llm.py` — Single LLM client (OpenAI-compatible, default OpenRouter)
-7. `_pipeline.py` — Deterministic retrieval + single-agent synthesis + citations
-8. Integration tests
-
-### Phase 3: Polish
-9. `pyproject.toml` — build config, extras, entry points
-10. CLI (`__main__.py`)
-11. Documentation (`README.md`, `API.md`)
-
-### Phase 4: Advanced (opt-in)
-12. Content-aware chunking (paragraph/code-block boundaries)
-13. Content hashing for idempotent re-loading
-14. Cross-file search (query without file_id)
-15. Two-agent pipeline (opt-in for semantic chunk selection)
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Phase 1: Core (SQLite, chunking, FTS5) | ✅ Done | FTS5 + triggers + BM25 |
+| Phase 2: LLM pipeline (single-agent) | ✅ Done | Standard query |
+| Phase 3: Polish (CLI, docs, extras) | ✅ Done | All extras, entry point |
+| Content-aware chunking | ✅ Done | Paragraph-mode chunking |
+| Content hashing (blake3) | ✅ Done | Idempotent re-load |
+| Cross-file search | ✅ Done | By namespace or global |
+| Heading detection + auto-TOC | ✅ Done | Regex-based, hierarchy-aware |
+| TOC-First pipeline | ✅ Done | Route → heading select → targeted search → expand → synthesize |
+| Agentic RAG (planner → executor → synthesizer) | ✅ Done | With dedup cache + advisor escalation |
+| Semantic reranker (FlashRank) | ✅ Done | ONNX cross-encoder |
+| Metrics tracking | ✅ Done | QueryMetrics per session |
+| OCR for scanned PDFs | ✅ Done | tesserocr + pdf2image |
+| PPTX / EPUB / ODT / RTF support | ✅ Done | Full format coverage |
+| Surrogate character handling | ✅ Done | PDF fix |
 
 ---
 
 ## 13. Non-Goals
 
-- **Vector search / embeddings** — Keyword+fuzzy search is sufficient for text files. Vector search adds embedding model dependency, vector DB complexity, and slower indexing. Can be added as an optional plugin later.
+- **Vector search / embeddings** — Keyword+fuzzy search is sufficient for text files. Vector search adds embedding model dependency, vector DB complexity, and slower indexing.
 - **Multi-user / auth** — Local library for single users. Auth is handled by the environment.
-- **Streaming responses** — The LLM pipeline returns complete answers. Streaming can be added later via generator interface.
-- **Web UI** — This is a library + CLI. Web UI belongs in a separate project.
+- **Streaming responses** — The LLM pipeline returns complete answers. Could be added via generator interface.
+- **Web UI** — This is a library + CLI. Web UI belongs in a separate project (e.g., Flask Chat).
 - **Conversation history** — Each query is stateless. Chat memory is a GUI concern.
 
 ---
@@ -663,13 +659,15 @@ rag-kit export 1 --format json
 | Decision | Rationale |
 |----------|-----------|
 | SQLite default | Zero setup, single file, good for up to thousands of files |
-| SQLAlchemy for ORM | Same models work for SQLite or PostgreSQL — swap on connection string |
-| FTS5 (BM25) as primary search | Built into Python's sqlite3, zero deps, 10-100x faster than linear scan, proper relevance ranking |
-| rapidfuzz as fallback | Only for typo-tolerant re-ranking when FTS5 returns few results |
-| yake (optional) | Good keyword extraction without ML dependencies |
-| Deterministic retrieval (FTS5) instead of Agent 1 | Saves ~$0.01/query, faster (<100ms vs 3-8s), more consistent ranking |
-| Single LLM agent for synthesis | Cheaper than two-agent, equally effective when retrieval is good |
-| Content-aware chunking (optional) | Preserves paragraph/code block boundaries, better quality than fixed-size |
-| Content hashing | Skip re-ingesting unchanged files, enables idempotent load |
-| Citations in answers | Users can trace which part of the document the answer came from |
-| pip extras for optional deps | Keep install minimal (sqlalchemy + rapidfuzz = ~5MB) |
+| SQLAlchemy for ORM | Same models work for SQLite or PostgreSQL — swap connection string |
+| rapidfuzz as primary search | Token-order-independent matching catches things BM25 misses; linear scan is fast enough for typical document collections (<100K chunks) |
+| FTS5 BM25 as supplement | Provides exact-match precision to complement fuzzy search |
+| FlashRank reranker (agentic only) | Semantic re-ranking improves answer quality without per-turn cost |
+| Deterministic retrieval for standard query | Saves LLM cost, faster (<100ms vs 3-8s), more consistent |
+| Three query pipelines | Different needs: fast (standard), thorough (agentic), structured doc (TOC-first) |
+| Cheap executor + strong planner/synthesizer | 6x cheaper per query than using strong model for all stages |
+| Content-aware chunking defaults | 1200 chars is smaller than initial 2500 — better precision for targeted answers |
+| Auto-extracted TOC + headings | No manual TOC entry needed; works on any structured document |
+| Chunk reference stripping in answers | Users get clean natural language, not implementation details |
+| pip extras for all dependencies | Keep core install minimal (SQLAlchemy + rapidfuzz ≈ 5MB) |
+| tesserocr over pytesseract | tesserocr bundles .so, no binary on PATH needed |
