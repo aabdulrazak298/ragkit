@@ -235,7 +235,7 @@ class Pipeline:
         _planner_latency = _time.monotonic() - _t_planner
 
         # ── Build executor config (cheap model, or same as answerer) ─────
-        executor_model = searcher_model or config.model
+        executor_model = searcher_model or "qwen/qwen3.5-flash-02-23"
         executor_config = LLMConfig(
             api_key=config.api_key,
             model=executor_model,
