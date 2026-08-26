@@ -7,10 +7,33 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
+
 _DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 
 # Cheap router model for question routing and heading selection
 ROUTER_MODEL = "google/gemini-2.0-flash-lite-001"  # Fast, cheap, good enough for classification
+
+# Shared HTTP clients — connection reuse instead of a fresh TCP+TLS
+# handshake per call (~0.5-1s saved per query against remote APIs).
+_client: httpx.Client | None = None
+_aclient: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.Client:
+    """Return the module-level keep-alive sync client (thread-safe)."""
+    global _client
+    if _client is None:
+        _client = httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0))
+    return _client
+
+
+def _get_aclient() -> httpx.AsyncClient:
+    """Return the module-level keep-alive async client."""
+    global _aclient
+    if _aclient is None:
+        _aclient = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0))
+    return _aclient
 
 
 @dataclass
@@ -85,7 +108,43 @@ def chat_completion(
     if config.reasoning_effort:
         extra["reasoning_effort"] = config.reasoning_effort
 
-    resp = httpx.post(
+    resp = _get_client().post(
+        f"{config.base_url}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {config.api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config.model,
+            "messages": messages,
+            "temperature": config.temperature,
+            **({"max_tokens": config.max_tokens} if config.max_tokens else {}),
+            **extra,
+        },
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
+
+
+async def achat_completion(
+    messages: list[dict],
+    config: LLMConfig,
+    timeout: int = 120,
+) -> str:
+    """Async OpenAI-compatible chat completion (same contract as chat_completion)."""
+    if not config.api_key:
+        return _mock_answer(messages)
+
+    # Build extra params for thinking/reasoning
+    extra: dict[str, Any] = {}
+    if not config.thinking_enabled:
+        extra["thinking"] = {"type": "disabled"}
+    if config.reasoning_effort:
+        extra["reasoning_effort"] = config.reasoning_effort
+
+    resp = await _get_aclient().post(
         f"{config.base_url}/chat/completions",
         headers={
             "Authorization": f"Bearer {config.api_key}",
@@ -158,7 +217,7 @@ def agentic_chat(
         if config.reasoning_effort:
             extra["reasoning_effort"] = config.reasoning_effort
 
-        resp = httpx.post(
+        resp = _get_client().post(
             f"{config.base_url}/chat/completions",
             headers={
                 "Authorization": f"Bearer {config.api_key}",
@@ -268,7 +327,7 @@ def agentic_chat(
                 "NO_RELEVANT_CONTENT_FOUND"
             )
         })
-        resp = httpx.post(
+        resp = _get_client().post(
             f"{config.base_url}/chat/completions",
             headers={
                 "Authorization": f"Bearer {config.api_key}",
@@ -306,7 +365,7 @@ def router_completion(
 
     import httpx
 
-    resp = httpx.post(
+    resp = _get_client().post(
         f"{base_url}/chat/completions",
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -343,7 +402,7 @@ def json_completion(
 
     import httpx
 
-    resp = httpx.post(
+    resp = _get_client().post(
         f"{base_url}/chat/completions",
         headers={
             "Authorization": f"Bearer {api_key}",

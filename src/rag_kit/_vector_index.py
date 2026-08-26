@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import turbovec as tv
 
+from rag_kit._llm import _get_client
+
 EMBEDDING_URL = "https://openrouter.ai/api/v1/embeddings"
 DEFAULT_EMBED_MODEL = "qwen/qwen3-embedding-8b"
 DEFAULT_BIT_WIDTH = 4
@@ -80,9 +82,7 @@ class VectorIndex:
         if not self._enabled or not texts:
             return np.empty((0, self._dim), dtype=np.float32)
 
-        import httpx
-
-        resp = httpx.post(
+        resp = _get_client().post(
             EMBEDDING_URL,
             headers={
                 "Authorization": f"Bearer {self._api_key}",

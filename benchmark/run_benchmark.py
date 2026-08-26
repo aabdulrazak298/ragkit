@@ -103,42 +103,71 @@ def corpus_check(corpus_text: str) -> bool:
 
 # ── rag-kit runner ────────────────────────────────────────────────────
 
-def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
-               out_dir: Path, model: str) -> dict:
-    import rag_kit._llm as lllm
-    from rag_kit import RAGSystem, LLMConfig
+class _RespWrap:
+    """Response wrapper capturing OpenRouter usage on .json()."""
 
-    # Capture real API usage: wrap httpx.post so .json() records usage.
+    def __init__(self, resp):
+        self._r = resp
+
+    def json(self):
+        data = self._r.json()
+        if data.get("usage"):
+            captured.append(data["usage"])
+        return data
+
+    def raise_for_status(self):
+        return self._r.raise_for_status()
+
+    @property
+    def status_code(self):
+        return self._r.status_code
+
+
+captured: list[dict] = []
+_orig_client_post = None
+_orig_aclient_post = None
+
+
+def _install_capture():
+    """Wrap httpx.Client.post / AsyncClient.post to record usage."""
     import httpx
 
-    captured: list[dict] = []
-    real_post = httpx.post
+    global _orig_client_post, _orig_aclient_post
 
-    class _RespWrap:
-        def __init__(self, resp):
-            self._r = resp
+    def _cpost(self, *a, **kw):
+        return _RespWrap(_orig_client_post(self, *a, **kw))
 
-        def json(self):
-            data = self._r.json()
-            if data.get("usage"):
-                captured.append(data["usage"])
-            return data
+    async def _apost(self, *a, **kw):
+        return _RespWrap(await _orig_aclient_post(self, *a, **kw))
 
-        def raise_for_status(self):
-            return self._r.raise_for_status()
+    _orig_client_post = httpx.Client.post
+    _orig_aclient_post = httpx.AsyncClient.post
+    httpx.Client.post = _cpost
+    httpx.AsyncClient.post = _apost
 
-        @property
-        def status_code(self):
-            return self._r.status_code
 
-    def _patched_post(*a, **kw):
-        return _RespWrap(real_post(*a, **kw))
+def _restore_capture():
+    import httpx
 
-    httpx.post = _patched_post
+    if _orig_client_post is not None:
+        httpx.Client.post = _orig_client_post
+    if _orig_aclient_post is not None:
+        httpx.AsyncClient.post = _orig_aclient_post
+
+
+def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
+               out_dir: Path, model: str, async_mode: bool = False) -> dict:
+    from rag_kit import RAGSystem, LLMConfig
+
+    _install_capture()
 
     db = out_dir / "ragkit_bench.db"
     if db.exists():
         db.unlink()
+    if async_mode:
+        db = out_dir / "ragkit_async_bench.db"
+        if db.exists():
+            db.unlink()
     rag = RAGSystem(db_path=str(db),
                     llm_config=LLMConfig(model=model, temperature=TEMP, api_key=api_key,
                                          max_tokens=1024),
@@ -153,23 +182,12 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
                  for c in rag._storage.get_all_chunks(fid)}
 
     rows = []
-    for qid, (q, phrases) in zip(QUESTION_IDS, QUESTIONS):
-        captured.clear()
-        t0 = time.time()
-        try:
-            res = rag.query(fid, q)
-            latency = time.time() - t0
-            answer = res.answer
-            retr = " ".join(
-                chunk_map.get(c.get("chunk_index"), "") for c in res.citations
-            )
-        except Exception as e:
-            rows.append(dict(id=qid, question=q, answer=f"<error: {e}>",
-                             correct=False, retr_hit=False,
-                             latency=time.time() - t0, prompt_tokens=0,
-                             completion_tokens=0, cost=0.0, error=str(e)))
-            continue
 
+    def _record(qid, q, phrases, res, latency):
+        answer = res.answer
+        retr = " ".join(
+            chunk_map.get(c.get("chunk_index"), "") for c in res.citations
+        )
         usage = captured[-1] if captured else {}
         pt = usage.get("prompt_tokens", 0)
         ct = usage.get("completion_tokens", 0)
@@ -186,8 +204,47 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
         print(f"    [{qid}] {latency:6.1f}s  correct={phrase_hit(answer, phrases)}  "
               f"prompt={pt} comp={ct}", file=sys.stderr, flush=True)
 
-    httpx.post = real_post  # restore
-    return dict(system="rag-kit", build_s=build_s, rows=rows)
+    def _one_query(qid, q, phrases):
+        captured.clear()
+        t0 = time.time()
+        try:
+            res = rag.query(fid, q)
+        except Exception as e:
+            rows.append(dict(id=qid, question=q, answer=f"<error: {e}>",
+                             correct=False, retr_hit=False,
+                             latency=time.time() - t0, prompt_tokens=0,
+                             completion_tokens=0, cost=0.0, error=str(e)))
+            return
+        _record(qid, q, phrases, res, time.time() - t0)
+
+    async def _one_query_async(qid, q, phrases):
+        captured.clear()
+        t0 = time.time()
+        try:
+            res = await rag.aquery(fid, q)
+        except Exception as e:
+            rows.append(dict(id=qid, question=q, answer=f"<error: {e}>",
+                             correct=False, retr_hit=False,
+                             latency=time.time() - t0, prompt_tokens=0,
+                             completion_tokens=0, cost=0.0, error=str(e)))
+            return
+        _record(qid, q, phrases, res, time.time() - t0)
+
+    if async_mode:
+        import asyncio
+
+        async def _run_all():
+            for qid, (q, phrases) in zip(QUESTION_IDS, QUESTIONS):
+                await _one_query_async(qid, q, phrases)
+
+        asyncio.run(_run_all())
+    else:
+        for qid, (q, phrases) in zip(QUESTION_IDS, QUESTIONS):
+            _one_query(qid, q, phrases)
+
+    _restore_capture()
+    return dict(system="rag-kit (async)" if async_mode else "rag-kit (sync)",
+                build_s=build_s, rows=rows)
 
 
 # ── LlamaIndex runner ────────────────────────────────────────────────
@@ -360,6 +417,10 @@ def main():
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--top-k-extra", action="store_true", default=True,
                     help="also run LlamaIndex with similarity_top_k=10")
+    ap.add_argument("--no-top-k-extra", action="store_true",
+                    help="skip the LlamaIndex k=10 run (previous benchmark already has it)")
+    ap.add_argument("--async-first", action="store_true",
+                    help="run rag-kit async before sync (order confound check)")
     ap.add_argument("--only", choices=["ragkit", "llamaindex"], default=None)
     ap.add_argument("--max-q", type=int, default=None,
                     help="run only the first N questions (smoke test)")
@@ -390,9 +451,14 @@ def main():
                        indent=2, default=str))
 
     if args.only in (None, "ragkit"):
-        print("running rag-kit...")
-        results.append(run_ragkit(str(corpus_path), api_key, price, out_dir, args.model))
-        _save_partial()
+        order = [(False, "sync"), (True, "async")]
+        if args.async_first:
+            order = [(True, "async"), (False, "sync")]
+        for async_mode, label in order:
+            print(f"running rag-kit ({label})...")
+            results.append(run_ragkit(str(corpus_path), api_key, price, out_dir,
+                                      args.model, async_mode=async_mode))
+            _save_partial()
     if args.only in (None, "llamaindex"):
         # LlamaIndex needs a .txt extension for its default reader
         txt = out_dir / "corpus.txt"
@@ -400,7 +466,7 @@ def main():
         print("running llama-index (default k=2)...")
         results.append(run_llamaindex(str(txt), api_key, price, top_k=2, label="LlamaIndex (k=2)", model=args.model))
         _save_partial()
-        if args.top_k_extra:
+        if args.top_k_extra and not args.no_top_k_extra:
             print("running llama-index (k=10)...")
             results.append(run_llamaindex(str(txt), api_key, price, top_k=10, label="LlamaIndex (k=10)", model=args.model))
 

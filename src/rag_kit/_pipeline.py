@@ -6,7 +6,14 @@ import json
 import re
 from typing import Any
 
-from rag_kit._llm import LLMConfig, chat_completion, agentic_chat, json_completion, router_completion
+from rag_kit._llm import (
+    LLMConfig,
+    chat_completion,
+    achat_completion,
+    agentic_chat,
+    json_completion,
+    router_completion,
+)
 from rag_kit._reranker import rerank as semantic_rerank
 from rag_kit._search import search as search_chunks
 from rag_kit._storage import Storage
@@ -108,6 +115,66 @@ class Pipeline:
         ]
 
         answer = chat_completion(
+            messages=[{"role": "user", "content": "\n".join(content_parts)}],
+            config=config,
+        )
+        return answer, citations
+
+    async def aquery(
+        self, file_id: int, question: str, llm_config: LLMConfig | None = None
+    ) -> tuple[str, list[dict]]:
+        """Async query — same retrieval, async LLM synthesis.
+
+        Mirrors query() with an awaited chat completion so FastAPI/async
+        callers can serve concurrent RAG queries without blocking threads.
+        """
+        # Step 1: Hybrid retrieval (vector + FTS5) or FTS5 fallback
+        results = search_chunks(
+            self._storage,
+            query=question,
+            file_id=file_id,
+            top_k=10,
+            vector_index=self._vector_index,
+        )
+
+        if not results:
+            return "No relevant content found in the document.", []
+
+        results = trim_chunks(results, question, text_key="text")
+
+        toc = self._storage.get_toc(file_id) or ""
+        info = self._storage.get_file(file_id) or {}
+
+        chunks_text = []
+        citations = []
+        for r in results[:10]:
+            chunk_idx = r.get("chunk_index", r.get("index", 0))
+            chunks_text.append(f"[chunk {chunk_idx}]\n{r['text']}")
+            citations.append({
+                "file_id": r.get("file_id", file_id),
+                "namespace": info.get("namespace", "default"),
+                "chunk_index": chunk_idx,
+                "score": r.get("score", 0),
+            })
+
+        config = self._resolve_config(llm_config)
+
+        content_parts = [
+            f"Document: {info.get('filename', 'unknown')}",
+            f"TOC:\n{toc[:1000] if toc else 'None'}",
+            "",
+            "Relevant excerpts:",
+            "\n".join(chunks_text),
+            "",
+            f"Question: {question}",
+            "",
+            "Answer comprehensively based on the content above. "
+            "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
+            "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text. "
+            "Do not put [chunk N] or (chunk N) anywhere in your response — present the technical information naturally.",
+        ]
+
+        answer = await achat_completion(
             messages=[{"role": "user", "content": "\n".join(content_parts)}],
             config=config,
         )

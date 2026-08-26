@@ -61,6 +61,28 @@ against ground truth verified to exist in the corpus.
 - Not measured here: multi-modal, 50+ data connectors, streaming, LangSmith
   observability, and community ecosystem, where the frameworks lead.
 
+### Async vs sync (2026-08-26, order-swap controlled)
+
+rag-kit now ships an async query path (`RAGSystem.aquery`) with shared
+keep-alive HTTP clients (`httpx.Client` / `AsyncClient`). Measured with the
+same 20 questions, run order swapped to control for server warm-up:
+
+| Order | First system | Second system |
+|---|---|---|
+| sync → async | sync 19.0s avg | async 8.8s avg |
+| async → sync | async 12.7s avg | sync 10.5s avg |
+
+**Conclusion: no measurable single-query latency difference between async
+and sync** — per-query latency is dominated by LLM generation, and the
+"second system wins" pattern shows the gap is server-side variance, not the
+async mechanism. Both paths score 19/20 accuracy. The async path's real
+value is **concurrency** (serving many users without blocking worker
+threads), which a sequential benchmark cannot measure — wire it into
+FastAPI/Flask deployments for that benefit.
+
+If per-query speed is the goal, the levers are output size (lower
+`max_tokens`), model choice, or a terser synthesis prompt — not sync/async.
+
 ## How it's measured (fairness contract)
 
 | Dimension | Setting |

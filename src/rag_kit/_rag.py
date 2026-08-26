@@ -443,6 +443,47 @@ class RAGSystem:
 
         return QueryResult(answer=answer, citations=citations)
 
+    async def aquery(
+        self,
+        file_id_or_question: int | str,
+        question: str | None = None,
+        namespace: str | None = None,
+        llm_config: LLMConfig | None = None,
+        toc_first: bool = False,
+    ) -> QueryResult:
+        """Async query — same contract as query() with async LLM synthesis.
+
+        File-ID mode uses the async pipeline (awaitable, non-blocking).
+        Namespace/question-only modes fall back to the sync pipeline.
+        """
+        if question is not None:
+            if toc_first:
+                answer, citations = self._pipeline.query_toc_first(
+                    file_id=file_id_or_question,
+                    question=question,
+                    llm_config=llm_config,
+                )
+            else:
+                answer, citations = await self._pipeline.aquery(
+                    file_id=file_id_or_question,
+                    question=question,
+                    llm_config=llm_config,
+                )
+        elif namespace is not None:
+            answer, citations = self._pipeline.query_by_namespace(
+                question=str(file_id_or_question),
+                namespace=namespace,
+                llm_config=llm_config,
+            )
+        else:
+            answer, citations = self._pipeline.query_by_namespace(
+                question=str(file_id_or_question),
+                namespace=None,
+                llm_config=llm_config,
+            )
+
+        return QueryResult(answer=answer, citations=citations)
+
     def query_agentic(
         self,
         file_id: int,
