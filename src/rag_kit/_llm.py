@@ -51,6 +51,7 @@ class LLMConfig:
     temperature: float = 0.1
     reasoning_effort: str | None = None  # "high", "max" — DeepSeek thinking effort
     thinking_enabled: bool = True  # DeepSeek: thinking mode on/off (default: on for V4)
+    reasoning: bool | None = None  # OpenRouter: reasoning.enabled toggle (None = provider default)
     max_tokens: int | None = None  # output cap; None = provider default (unbounded)
 
     def __post_init__(self):
@@ -107,6 +108,8 @@ def chat_completion(
         extra["thinking"] = {"type": "disabled"}
     if config.reasoning_effort:
         extra["reasoning_effort"] = config.reasoning_effort
+    if config.reasoning is not None:
+        extra["reasoning"] = {"enabled": config.reasoning}
 
     resp = _get_client().post(
         f"{config.base_url}/chat/completions",
@@ -143,6 +146,8 @@ async def achat_completion(
         extra["thinking"] = {"type": "disabled"}
     if config.reasoning_effort:
         extra["reasoning_effort"] = config.reasoning_effort
+    if config.reasoning is not None:
+        extra["reasoning"] = {"enabled": config.reasoning}
 
     resp = await _get_aclient().post(
         f"{config.base_url}/chat/completions",

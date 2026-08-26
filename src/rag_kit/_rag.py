@@ -395,6 +395,7 @@ class RAGSystem:
         namespace: str | None = None,
         llm_config: LLMConfig | None = None,
         toc_first: bool = False,
+        terse: bool = False,
     ) -> QueryResult:
         """Ask a question about a loaded document.
 
@@ -425,6 +426,7 @@ class RAGSystem:
                     file_id=file_id_or_question,
                     question=question,
                     llm_config=llm_config,
+                    terse=terse,
                 )
         elif namespace is not None:
             # Mode 2: question + namespace (cross-file search)
@@ -450,6 +452,7 @@ class RAGSystem:
         namespace: str | None = None,
         llm_config: LLMConfig | None = None,
         toc_first: bool = False,
+        terse: bool = False,
     ) -> QueryResult:
         """Async query — same contract as query() with async LLM synthesis.
 
@@ -468,6 +471,7 @@ class RAGSystem:
                     file_id=file_id_or_question,
                     question=question,
                     llm_config=llm_config,
+                    terse=terse,
                 )
         elif namespace is not None:
             answer, citations = self._pipeline.query_by_namespace(

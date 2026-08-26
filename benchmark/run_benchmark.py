@@ -156,7 +156,8 @@ def _restore_capture():
 
 
 def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
-               out_dir: Path, model: str, async_mode: bool = False) -> dict:
+               out_dir: Path, model: str, async_mode: bool = False,
+               terse: bool = False) -> dict:
     from rag_kit import RAGSystem, LLMConfig
 
     _install_capture()
@@ -170,7 +171,7 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
             db.unlink()
     rag = RAGSystem(db_path=str(db),
                     llm_config=LLMConfig(model=model, temperature=TEMP, api_key=api_key,
-                                         max_tokens=1024),
+                                         max_tokens=1024, reasoning=False),
                     max_files=0)
 
     t0 = time.time()
@@ -208,7 +209,7 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
         captured.clear()
         t0 = time.time()
         try:
-            res = rag.query(fid, q)
+            res = rag.query(fid, q, terse=terse)
         except Exception as e:
             rows.append(dict(id=qid, question=q, answer=f"<error: {e}>",
                              correct=False, retr_hit=False,
@@ -221,7 +222,7 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
         captured.clear()
         t0 = time.time()
         try:
-            res = await rag.aquery(fid, q)
+            res = await rag.aquery(fid, q, terse=terse)
         except Exception as e:
             rows.append(dict(id=qid, question=q, answer=f"<error: {e}>",
                              correct=False, retr_hit=False,
@@ -243,7 +244,8 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
             _one_query(qid, q, phrases)
 
     _restore_capture()
-    return dict(system="rag-kit (async)" if async_mode else "rag-kit (sync)",
+    _label = f"{'terse ' if terse else ''}{'async' if async_mode else 'sync'}"
+    return dict(system=f"rag-kit ({_label})",
                 build_s=build_s, rows=rows)
 
 
@@ -257,10 +259,12 @@ def run_llamaindex(corpus_path: str, api_key: str, price: tuple[float, float],
     try:
         from llama_index.llms.openrouter import OpenRouter as _BaseLLM
         _kw = dict(model=model, api_key=api_key, temperature=TEMP, max_tokens=1024)
+        _kw["additional_kwargs"] = {"extra_body": {"reasoning": {"enabled": False}}}
     except ImportError:
         from llama_index.llms.openai import OpenAI as _BaseLLM  # via api_base fallback
         _kw = dict(model=model, api_key=api_key, api_base="https://openrouter.ai/api/v1",
-                   temperature=TEMP, max_tokens=1024)
+                   temperature=TEMP, max_tokens=1024,
+                   additional_kwargs={"extra_body": {"reasoning": {"enabled": False}}})
 
     _calls: list[dict] = []
 
@@ -421,6 +425,8 @@ def main():
                     help="skip the LlamaIndex k=10 run (previous benchmark already has it)")
     ap.add_argument("--async-first", action="store_true",
                     help="run rag-kit async before sync (order confound check)")
+    ap.add_argument("--terse", action="store_true",
+                    help="run rag-kit with the concise synthesis prompt (fewer output tokens)")
     ap.add_argument("--only", choices=["ragkit", "llamaindex"], default=None)
     ap.add_argument("--max-q", type=int, default=None,
                     help="run only the first N questions (smoke test)")
@@ -455,9 +461,9 @@ def main():
         if args.async_first:
             order = [(True, "async"), (False, "sync")]
         for async_mode, label in order:
-            print(f"running rag-kit ({label})...")
+            print(f"running rag-kit ({label}{', terse' if args.terse else ''})...")
             results.append(run_ragkit(str(corpus_path), api_key, price, out_dir,
-                                      args.model, async_mode=async_mode))
+                                      args.model, async_mode=async_mode, terse=args.terse))
             _save_partial()
     if args.only in (None, "llamaindex"):
         # LlamaIndex needs a .txt extension for its default reader

@@ -19,7 +19,7 @@ QUESTIONS = [
     ("What is the default placeholder style used for parameters in sqlite3?",
      ["qmark"]),
     ("What prefix or syntax marks named placeholders in SQL statements?",
-     [":name"]),
+     [":name", "colon"]),
     ("What object does Connection.execute() return?",
      ["cursor"]),
     ("Which Connection method executes a script containing multiple SQL statements at once?",

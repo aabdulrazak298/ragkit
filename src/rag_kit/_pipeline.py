@@ -22,6 +22,36 @@ from rag_kit._trimming import trim_chunks
 CONTEXT_EXPANSION_WINDOW = 1  # ±1 chunk around matched hits
 
 
+def _build_synthesis_prompt(info: dict, toc: str, chunks_text: list[str], question: str, terse: bool = False) -> list[str]:
+    """Build the synthesis prompt for the standard query pipeline.
+
+    terse=True asks for a direct, concise answer — measurably fewer output
+    tokens than the comprehensive style (see benchmark/run_benchmark.py).
+    """
+    instruction = (
+        "Answer the question directly and concisely in a few sentences, using only the content above. "
+        "Include the specific technical details, parameter names, values, register names, pin numbers, "
+        "or settings from the document. No preamble, no repetition, no commentary."
+        if terse
+        else "Answer comprehensively based on the content above. "
+        "Include specific technical details, parameter names, values, register names, pin numbers, "
+        "configuration settings, or step-by-step instructions from the document where relevant."
+    )
+    return [
+        f"Document: {info.get('filename', 'unknown')}",
+        f"TOC:\n{toc[:1000] if toc else 'None'}",
+        "",
+        "Relevant excerpts:",
+        "\n".join(chunks_text),
+        "",
+        f"Question: {question}",
+        "",
+        instruction,
+        "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text. "
+        "Do not put [chunk N] or (chunk N) anywhere in your response — present the technical information naturally.",
+    ]
+
+
 class Pipeline:
     """Single-agent query pipeline: hybrid vector+FTS5 retrieval → LLM synthesis."""
 
@@ -55,7 +85,7 @@ class Pipeline:
     # ── Existing query methods (unchanged) ────────────────────────────
 
     def query(
-        self, file_id: int, question: str, llm_config: LLMConfig | None = None
+        self, file_id: int, question: str, llm_config: LLMConfig | None = None, terse: bool = False
     ) -> tuple[str, list[dict]]:
         """Query a specific file. Returns (answer, citations).
 
@@ -99,20 +129,7 @@ class Pipeline:
         config = self._resolve_config(llm_config)
 
         # Step 3: LLM synthesis
-        content_parts = [
-            f"Document: {info.get('filename', 'unknown')}",
-            f"TOC:\n{toc[:1000] if toc else 'None'}",
-            "",
-            "Relevant excerpts:",
-            "\n".join(chunks_text),
-            "",
-            f"Question: {question}",
-            "",
-            "Answer comprehensively based on the content above. "
-            "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
-            "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text. "
-            "Do not put [chunk N] or (chunk N) anywhere in your response — present the technical information naturally.",
-        ]
+        content_parts = _build_synthesis_prompt(info, toc, chunks_text, question, terse)
 
         answer = chat_completion(
             messages=[{"role": "user", "content": "\n".join(content_parts)}],
@@ -121,7 +138,7 @@ class Pipeline:
         return answer, citations
 
     async def aquery(
-        self, file_id: int, question: str, llm_config: LLMConfig | None = None
+        self, file_id: int, question: str, llm_config: LLMConfig | None = None, terse: bool = False
     ) -> tuple[str, list[dict]]:
         """Async query — same retrieval, async LLM synthesis.
 
@@ -159,20 +176,7 @@ class Pipeline:
 
         config = self._resolve_config(llm_config)
 
-        content_parts = [
-            f"Document: {info.get('filename', 'unknown')}",
-            f"TOC:\n{toc[:1000] if toc else 'None'}",
-            "",
-            "Relevant excerpts:",
-            "\n".join(chunks_text),
-            "",
-            f"Question: {question}",
-            "",
-            "Answer comprehensively based on the content above. "
-            "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
-            "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text. "
-            "Do not put [chunk N] or (chunk N) anywhere in your response — present the technical information naturally.",
-        ]
+        content_parts = _build_synthesis_prompt(info, toc, chunks_text, question, terse)
 
         answer = await achat_completion(
             messages=[{"role": "user", "content": "\n".join(content_parts)}],
