@@ -1,0 +1,6 @@
+.venv/
+results/*
+!results/latest.json
+__pycache__/
+results_run.log
+smoke.log
