@@ -16,12 +16,22 @@ Example:
 
 from rag_kit._rag import RAGSystem, LLMConfig, QueryResult
 from rag_kit._metrics import QueryMetrics, record, get_all, get_last, stats
+from rag_kit._vector_index import VectorIndex
+from rag_kit._local_embed import hybrid_score, abstain_gate, is_model_available
+from rag_kit._durable_index import DurableIndex
+from rag_kit._trimming import trim_chunks
 
 __all__ = [
     "RAGSystem",
     "LLMConfig",
     "QueryResult",
     "QueryMetrics",
+    "VectorIndex",
+    "DurableIndex",
+    "hybrid_score",
+    "abstain_gate",
+    "is_model_available",
+    "trim_chunks",
     "record",
     "get_all",
     "get_last",

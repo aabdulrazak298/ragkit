@@ -18,19 +18,44 @@ class LLMConfig:
     """Provider configuration for the synthesis LLM.
 
     All fields optional — defaults read from environment variables.
+    Auto-detects provider: deepseek/* models → DeepSeek direct API,
+    everything else → OpenRouter.
     """
 
     api_key: str | None = None
     model: str = _DEFAULT_MODEL
     base_url: str = "https://openrouter.ai/api/v1"
     temperature: float = 0.1
+    reasoning_effort: str | None = None  # "high", "max" — DeepSeek thinking effort
+    thinking_enabled: bool = True  # DeepSeek: thinking mode on/off (default: on for V4)
+    max_tokens: int | None = None  # output cap; None = provider default (unbounded)
 
     def __post_init__(self):
+        # Auto-detect provider from model prefix (always, not just when api_key is None)
+        if self.model.startswith("deepseek/"):
+            self.base_url = os.environ.get(
+                "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+            ).rstrip("/") + "/v1"
+            self.model = self._map_deepseek_model(self.model)
+
         if self.api_key is None:
-            # Try OpenRouter key first, then generic OpenAI key
-            self.api_key = os.environ.get("OPENROUTER_KEY") or os.environ.get(
-                "OPENAI_API_KEY", ""
-            )
+            if self.model.startswith("deepseek-"):
+                self.api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get(
+                    "OPENROUTER_KEY", ""
+                )
+            else:
+                self.api_key = os.environ.get("OPENROUTER_KEY") or os.environ.get(
+                    "OPENAI_API_KEY", ""
+                )
+
+    @staticmethod
+    def _map_deepseek_model(model: str) -> str:
+        """Strip OpenRouter 'deepseek/' prefix for DeepSeek direct API.
+        
+        OpenRouter:  deepseek/deepseek-v4-flash
+        DeepSeek:    deepseek-v4-flash
+        """
+        return model.split("/", 1)[-1]
 
 
 def chat_completion(
@@ -53,6 +78,13 @@ def chat_completion(
 
     import httpx
 
+    # Build extra params for thinking/reasoning
+    extra: dict[str, Any] = {}
+    if not config.thinking_enabled:
+        extra["thinking"] = {"type": "disabled"}
+    if config.reasoning_effort:
+        extra["reasoning_effort"] = config.reasoning_effort
+
     resp = httpx.post(
         f"{config.base_url}/chat/completions",
         headers={
@@ -63,6 +95,8 @@ def chat_completion(
             "model": config.model,
             "messages": messages,
             "temperature": config.temperature,
+            **({"max_tokens": config.max_tokens} if config.max_tokens else {}),
+            **extra,
         },
         timeout=timeout,
     )
@@ -116,6 +150,14 @@ def agentic_chat(
 
         remaining = max(5, int(deadline - time.monotonic()))
         per_request_timeout = min(timeout, remaining)
+        
+        # Build extra params (thinking/reasoning)
+        extra: dict[str, Any] = {}
+        if not config.thinking_enabled:
+            extra["thinking"] = {"type": "disabled"}
+        if config.reasoning_effort:
+            extra["reasoning_effort"] = config.reasoning_effort
+
         resp = httpx.post(
             f"{config.base_url}/chat/completions",
             headers={
@@ -127,10 +169,15 @@ def agentic_chat(
                 "messages": current_messages,
                 "tools": tools,
                 "temperature": config.temperature,
+                **({"max_tokens": config.max_tokens} if config.max_tokens else {}),
+                **extra,
             },
             timeout=per_request_timeout,
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"API error {resp.status_code}: {resp.text[:800]}"
+            )
         data = resp.json()
         choice = data["choices"][0]
         msg = choice["message"]
@@ -231,7 +278,7 @@ def agentic_chat(
                 "model": config.model,
                 "messages": final_messages,
                 "temperature": config.temperature,
-                "max_tokens": 1024,
+                "max_tokens": 4096,
             },
             timeout=min(timeout, 30),
         )
@@ -269,7 +316,7 @@ def router_completion(
             "model": ROUTER_MODEL,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 1024,
+            "max_tokens": 4096,
         },
         timeout=timeout,
     )

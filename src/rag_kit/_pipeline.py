@@ -10,22 +10,25 @@ from rag_kit._llm import LLMConfig, chat_completion, agentic_chat, json_completi
 from rag_kit._reranker import rerank as semantic_rerank
 from rag_kit._search import search as search_chunks
 from rag_kit._storage import Storage
+from rag_kit._trimming import trim_chunks
 
 CONTEXT_EXPANSION_WINDOW = 1  # ±1 chunk around matched hits
 
 
 class Pipeline:
-    """Single-agent query pipeline: FTS5 retrieval → LLM synthesis."""
+    """Single-agent query pipeline: hybrid vector+FTS5 retrieval → LLM synthesis."""
 
     def __init__(
         self,
         storage: Storage,
         llm_config: LLMConfig | None = None,
         search_threshold: float | None = None,
+        vector_index: Any | None = None,
     ):
         self._storage = storage
         self._config = llm_config
         self._search_threshold = search_threshold
+        self._vector_index = vector_index
 
     def set_llm_config(self, llm_config: LLMConfig | None) -> None:
         """Set or clear the LLM configuration after construction.
@@ -54,23 +57,21 @@ class Pipeline:
             question: Question to ask.
             llm_config: Optional per-query LLM config override.
         """
-        # Step 1: Deterministic retrieval via FTS5
+        # Step 1: Hybrid retrieval (vector + FTS5) or FTS5 fallback
         results = search_chunks(
             self._storage,
             query=question,
             file_id=file_id,
             top_k=10,
+            vector_index=self._vector_index,
         )
 
+        # Step 1b: If nothing found, abstain — don't feed random chunks
         if not results:
-            # Fall back to first chunks so LLM can still answer
-            results = [
-                {"chunk_index": c["index"], "text": c["text"], "file_id": file_id,
-                 "score": 0.0, "preview": c.get("preview", c["text"][:100])}
-                for c in self._storage.get_all_chunks(file_id)[:10]
-            ]
-            if not results:
-                return "No relevant content found in the document.", []
+            return "No relevant content found in the document.", []
+
+        # Step 1c: Sentence-window trimming — keep only best sentences
+        results = trim_chunks(results, question, text_key="text")
 
         # Step 2: Build context from top chunks
         toc = self._storage.get_toc(file_id) or ""
@@ -101,7 +102,9 @@ class Pipeline:
             f"Question: {question}",
             "",
             "Answer comprehensively based on the content above. "
-            "Do NOT reference chunk numbers, internal identifiers, or implementation details in your answer — just explain naturally.",
+            "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
+            "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text. "
+            "Do not put [chunk N] or (chunk N) anywhere in your response — present the technical information naturally.",
         ]
 
         answer = chat_completion(
@@ -121,16 +124,20 @@ class Pipeline:
             namespace: Namespace to search (None = all).
             llm_config: Optional per-query LLM config override.
         """
-        # Search across files
+        # Search across files — hybrid or fallback
         results = search_chunks(
             self._storage,
             query=question,
             namespace=namespace,
             top_k=15,
+            vector_index=self._vector_index,
         )
 
         if not results:
             return "No relevant content found.", []
+
+        # Apply sentence-window trimming
+        results = trim_chunks(results, question, text_key="text")
 
         # Group results by file
         file_chunks: dict[int, list[dict]] = {}
@@ -166,7 +173,9 @@ class Pipeline:
         sections.append(f"\nQuestion: {question}")
         sections.append(
             "Answer comprehensively. "
-            "Do NOT reference chunk numbers, file IDs, or internal identifiers in your answer — just explain naturally."
+            "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
+            "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text. "
+            "Do not put [chunk N] or (chunk N) anywhere in your response — present the technical information naturally.",
         )
 
         config = self._resolve_config(llm_config)
@@ -181,8 +190,9 @@ class Pipeline:
     def query_agentic(
         self, file_id: int, question: str, llm_config: LLMConfig | None = None,
         max_turns: int = 10, searcher_model: str | None = None,
+        planner_model: str | None = None,
     ) -> tuple[str, list[dict], dict]:
-        """Two-stage agentic RAG: strong advisor + cheap executor + synthesizer.
+        """Two-stage agentic RAG: planner + cheap executor + synthesizer.
 
         Stage 0 — Planner (strong model): analyses question + TOC, produces
         a search strategy (suggested sections, terms to try).
@@ -197,10 +207,12 @@ class Pipeline:
         Args:
             file_id: ID of the loaded file.
             question: Question to ask.
-            llm_config: Optional per-query LLM config override.
+            llm_config: Optional per-query LLM config override (for synthesizer).
             max_turns: Max tool-calling iterations for the executor (default 10).
-            searcher_model: Model for the executor stage. Defaults to the
-                same as llm_config.model (override with a cheap model).
+            searcher_model: Model for the executor stage. Defaults to
+                deepseek/deepseek-v4-flash (same as planner/synthesizer).
+            planner_model: Model for the planner stage. Defaults to
+                llm_config.model (same as synthesizer).
 
         Returns:
             (answer, citations) where citations reference the chunks used.
@@ -209,6 +221,16 @@ class Pipeline:
         toc = self._storage.get_toc(file_id) or ""
         filename = info.get("filename", "unknown")
         config = self._resolve_config(llm_config)
+
+        # ── Planner config: separate model for strategy planning ──────────
+        planner_config = config
+        if planner_model:
+            planner_config = LLMConfig(
+                api_key=config.api_key,
+                model=planner_model,
+                base_url=config.base_url,
+                temperature=0.1,
+            )
 
         # ── Track metrics ──────────────────────────────────────────────
         import time as _time
@@ -229,18 +251,19 @@ class Pipeline:
         )
         plan = chat_completion(
             messages=[{"role": "user", "content": planner_prompt}],
-            config=config,  # Strong model
+            config=planner_config,
             timeout=30,
         )
         _planner_latency = _time.monotonic() - _t_planner
 
         # ── Build executor config (cheap model, or same as answerer) ─────
-        executor_model = searcher_model or "qwen/qwen3.5-flash-02-23"
+        executor_model = searcher_model or "deepseek-v4-flash"
         executor_config = LLMConfig(
             api_key=config.api_key,
             model=executor_model,
             base_url=config.base_url,
             temperature=0.05,
+            thinking_enabled=False,  # No benefit for tool-calling, just adds latency
         )
 
         # ── TOC-guided initial hints ─────────────────────────────────────
@@ -286,7 +309,7 @@ class Pipeline:
                 )
                 return chat_completion(
                     messages=[{"role": "user", "content": advice_prompt}],
-                    config=config,  # Strong model
+                    config=planner_config,
                     timeout=20,
                 )
             except Exception:
@@ -372,6 +395,7 @@ class Pipeline:
                     file_id=file_id,
                     top_k=10,
                     threshold=self._search_threshold,
+                    vector_index=self._vector_index,
                 )
                 _query_cache[cache_key] = results
 
@@ -527,13 +551,22 @@ class Pipeline:
                 f"{chr(10).join(collected_texts)}\n\n"
                 f"Question: {question}\n\n"
                 "Answer comprehensively based on the content above. "
-                "Do NOT reference chunk numbers, internal identifiers, or implementation details in your answer — just explain naturally."
+                "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
+                "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata."
             )
 
         _t_synth = _time.monotonic()
+        # Synthesizer with reasoning enabled for deeper, more accurate answers
+        synth_config = LLMConfig(
+            api_key=config.api_key,
+            model=config.model,
+            base_url=config.base_url,
+            temperature=config.temperature,
+            reasoning_effort="high",
+        )
         answer = chat_completion(
             messages=[{"role": "user", "content": answerer_content}],
-            config=config,  # Strong model for answering
+            config=synth_config,
         )
         _synth_latency = _time.monotonic() - _t_synth
 
@@ -556,7 +589,7 @@ class Pipeline:
         metrics = {
             "query_id": None,  # Set by caller
             "method": "agentic",
-            "planner_model": config.model,
+            "planner_model": planner_config.model,
             "planner_latency": round(_planner_latency, 2),
             "executor_model": executor_model,
             "executor_turns": len(trace),
@@ -861,7 +894,9 @@ class Pipeline:
             f"Question: {question}",
             "",
             "Answer comprehensively based on the content above. "
-            "Reference the section name when citing specific information.",
+            "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
+            "Reference the section name when citing specific information. "
+            "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text.",
         ]
 
         answer = chat_completion(

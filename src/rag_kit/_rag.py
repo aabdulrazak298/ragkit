@@ -16,6 +16,7 @@ from rag_kit._processor import (
 )
 from rag_kit._search import search
 from rag_kit._storage import Storage, compute_content_hash
+from rag_kit._vector_index import VectorIndex
 
 DEFAULT_CHUNK_SIZE = 1200
 DEFAULT_CHUNK_OVERLAP = 200
@@ -87,14 +88,19 @@ class RAGSystem:
         default_overlap: int | None = None,
         search_threshold: float | None = None,
         max_files: int = 50,
+        enable_vectors: bool = True,
     ):
         self._storage = Storage(db_path)
         self._chunk_size = default_chunk_size or DEFAULT_CHUNK_SIZE
         self._overlap = default_overlap or DEFAULT_CHUNK_OVERLAP
         self._threshold = search_threshold or DEFAULT_SEARCH_THRESHOLD
         self._max_files = max_files
-        self._pipeline = Pipeline(self._storage, llm_config,
-                                   search_threshold=self._threshold)
+        self._vector_index = VectorIndex() if enable_vectors else None
+        self._pipeline = Pipeline(
+            self._storage, llm_config,
+            search_threshold=self._threshold,
+            vector_index=self._vector_index,
+        )
 
     def set_llm_config(self, llm_config: LLMConfig | None) -> None:
         """Set or clear the LLM configuration after construction.
@@ -190,6 +196,14 @@ class RAGSystem:
         if toc_text:
             self._storage.set_toc(file_id, toc_text)
         self._cleanup_if_needed()
+
+        # Vector index the chunks (URL load)
+        if self._vector_index and chunks:
+            chunk_texts = [c["text"] for c in chunks]
+            added = self._vector_index.add_file(file_id, chunk_texts)
+            if added:
+                self._vector_index.save(namespace)
+
         return file_id
 
     def load_file(
@@ -362,6 +376,14 @@ class RAGSystem:
         if toc_text:
             self._storage.set_toc(file_id, toc_text)
         self._cleanup_if_needed()
+
+        # Vector index the chunks (file load)
+        if self._vector_index and chunks:
+            chunk_texts = [c["text"] for c in chunks]
+            added = self._vector_index.add_file(file_id, chunk_texts)
+            if added:
+                self._vector_index.save(namespace)
+
         return file_id
 
     # ── Query ─────────────────────────────────────────────────────────
@@ -428,6 +450,7 @@ class RAGSystem:
         llm_config: LLMConfig | None = None,
         max_turns: int = 10,
         searcher_model: str | None = None,
+        planner_model: str | None = None,
     ) -> QueryResult:
         """Agentic RAG: LLM searches the document itself using a search tool.
 
@@ -439,6 +462,8 @@ class RAGSystem:
             question: Question to ask.
             llm_config: Optional per-query LLM config override.
             max_turns: Max tool-calling iterations (default 10).
+            searcher_model: Model for the executor stage.
+            planner_model: Model for the planner stage.
 
         Returns:
             QueryResult with .answer and .citations.
@@ -449,6 +474,7 @@ class RAGSystem:
             llm_config=llm_config,
             max_turns=max_turns,
             searcher_model=searcher_model,
+            planner_model=planner_model,
         )
         return QueryResult(answer=answer, citations=citations, metrics=metrics)
 
@@ -462,6 +488,9 @@ class RAGSystem:
     ) -> list[dict[str, Any]]:
         """Direct keyword search without LLM.
 
+        Uses hybrid (vector + FTS5) when vector index is available,
+        falls back to fuzzy + FTS5.
+
         Returns matching chunks sorted by relevance.
         """
         return search(
@@ -471,6 +500,7 @@ class RAGSystem:
             namespace=namespace,
             top_k=20,
             threshold=self._threshold,
+            vector_index=self._vector_index,
         )
 
     # ── Chunk / TOC access ────────────────────────────────────────────
@@ -491,6 +521,13 @@ class RAGSystem:
         return self._storage.list_files(namespace=namespace)
 
     def delete_file(self, file_id: int) -> bool:
+        # Remove from vector index first
+        if self._vector_index:
+            info = self._storage.get_file(file_id)
+            if info:
+                self._vector_index.remove_file(file_id, info.get("total_chunks", 0))
+                namespace = info.get("namespace", "default")
+                self._vector_index.save(namespace)
         return self._storage.delete_file(file_id)
 
     def stats(self) -> dict:

@@ -28,6 +28,9 @@ classifiers = [
 dependencies = [
     "sqlalchemy>=2.0",
     "rapidfuzz>=3.0",
+    "httpx>=0.27",
+    "turbovec>=0.7",
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
