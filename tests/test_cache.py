@@ -105,12 +105,39 @@ def test_cache_questions_derives_chunk_range(tmp_db):
     qs = st.cache_questions("file:1")
     assert len(qs) == 1
     assert qs[0]["question"] == "can i return this item"
-    assert qs[0]["chunk_start"] == 40
-    assert qs[0]["chunk_end"] == 42
+    # median-anchored tight page: median 41 ± 2
+    assert qs[0]["chunk_start"] == 39
+    assert qs[0]["chunk_end"] == 43
     # No citations -> no learned entry
     st.cache_put("file:1", "q without cites", "q without cites", "a", [])
     qs = st.cache_questions("file:1")
     assert len(qs) == 1
+
+
+def test_cache_questions_median_ignores_toc_outliers(tmp_db):
+    st = _make_storage(tmp_db)
+    # citations include TOC/header chunks at low indexes (expanded context)
+    st.cache_put("file:1", "q", "q", "a",
+                 [{"chunk_index": 2}, {"chunk_index": 80},
+                  {"chunk_index": 83}, {"chunk_index": 84}])
+    qs = st.cache_questions("file:1")
+    # no matched flags -> all citations; sorted [2,80,83,84], median -> 83 -> 81-85
+    assert qs[0]["chunk_start"] == 81
+    assert qs[0]["chunk_end"] == 85
+
+
+def test_cache_questions_anchors_on_matched_only(tmp_db):
+    st = _make_storage(tmp_db)
+    # matched answer chunks cluster at 44-46; expanded context spreads 2..84
+    st.cache_put("file:1", "q", "q", "a",
+                 [{"chunk_index": 2, "matched": False},
+                  {"chunk_index": 44, "matched": True},
+                  {"chunk_index": 46, "matched": True},
+                  {"chunk_index": 84, "matched": False}])
+    qs = st.cache_questions("file:1")
+    # matched sorted [44,46], median -> 46 -> 44-48
+    assert qs[0]["chunk_start"] == 44
+    assert qs[0]["chunk_end"] == 48
 
 
 def test_learned_menu_entries_attach_parent_section(tmp_db):

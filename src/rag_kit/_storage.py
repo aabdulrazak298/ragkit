@@ -646,10 +646,21 @@ class Storage:
                 ]
                 if not idxs:
                     continue
+                # Anchor on the MATCHED chunks (where the answer lives),
+                # not the expanded window (which includes TOC/header and
+                # adjacent context chunks). Tight page: median ± 2.
+                matched = sorted(
+                    c.get("chunk_index")
+                    for c in cites
+                    if isinstance(c, dict) and c.get("matched")
+                    and c.get("chunk_index") is not None
+                )
+                anchor = sorted(matched or idxs)
+                mid = anchor[len(anchor) // 2]
                 out.append({
                     "question": r.question,
-                    "chunk_start": min(idxs),
-                    "chunk_end": max(idxs),
+                    "chunk_start": max(0, mid - 2),
+                    "chunk_end": mid + 2,
                     "hits": r.hits,
                 })
             return out

@@ -1064,6 +1064,10 @@ class Pipeline:
         for ci in sorted_indices:
             chunk = self._storage.get_chunk(file_id, ci)
             if chunk:
+                # Flag the chunks the search actually matched (vs adjacent
+                # context) so citations can anchor the learned TOC entry
+                # to where the answer lives, not the expanded window.
+                chunk["matched"] = ci in original_matched_indices
                 # Find which section(s) this chunk belongs to
                 section_names = []
                 for m in mappings:
@@ -1123,6 +1127,7 @@ class Pipeline:
                 "chunk_index": ci,
                 "score": 1.0,
                 "sections": chunk.get("sections", []),
+                "matched": bool(chunk.get("matched", False)),
             })
 
         return answer, citations
