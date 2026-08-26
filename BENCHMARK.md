@@ -15,16 +15,20 @@ against ground truth verified to exist in the corpus.
 |---|---|---|---|---|---|---|---|
 | **rag-kit (terse, local)** | **19/20 (95%)** | **19/20 (95%)** | **1.1s** | 1,669 | 68 | $0.000135 | $0.0027 |
 | rag-kit (terse async, local) | 19/20 (95%) | 19/20 (95%) | 1.5s | 1,669 | 71 | $0.000135 | $0.0027 |
-| rag-kit (TOC-first, local) | 19/20 (95%) | 19/20 (95%) | 3.6s | 1,758 | 460 | $0.000234 | $0.0047 |
-| rag-kit (TOC-first async, local) | **20/20 (100%)** | 19/20 (95%) | 3.7s | 1,758 | 467 | $0.000236 | $0.0047 |
+| rag-kit (TOC-first, local) | **20/20 (100%)** | 19/20 (95%) | 3.7s | 1,758 | 460 | $0.000234 | $0.0047 |
+| rag-kit (TOC-first async, local) | 19/20 (95%) | 19/20 (95%) | 3.7s | 1,758 | 467 | $0.000235 | $0.0047 |
 | LlamaIndex (k=2) | 16/20 (80%) | 16/20 (80%) | 0.9s | 1,941 | 48 | $0.000140 | $0.0028 |
 | LlamaIndex (k=10) | 18/20 (90%) | 19/20 (95%) | 5.2s | 1,171 | 60 | $0.000091 | $0.0018 |
 
 > TOC-first rows use the navigation pipeline (`toc_first=True`): an LLM
 > router classifies the question, an LLM picks relevant TOC headings, and
-> search runs only inside those sections — extra LLM calls buy precision
-> (20/20 once) at 3.6× the latency and 2× the cost. The async run even
-> recovered Q10's strict-phrase miss via its longer synthesis.
+> search runs **in parallel** — section-scoped AND full hybrid retrieval
+> merged with normalized fusion, so a wrong heading choice can't hide the
+> answer. The **learned menu** appends past questions as TOC sub-entries
+> under the section that answered them ("can i return" → Return policy),
+> so the menu updates itself with every search. Extra LLM calls buy
+> precision (20/20 once, 19/20 the other) at 3.3× the latency and 2× the
+> cost. The parallel full search also recovered Q10's strict-phrase miss.
 
 ### Repeat queries: the learned index (query cache)
 
@@ -118,8 +122,12 @@ collapsed from ~1,024 to 74 tokens/query for rag-kit; latency from ~11s to
   (**5.9× faster AND 5 points more accurate**) and k=2's 16/20 (80%) at
   1.0s (**15 points more accurate at the same speed**).
 - **TOC-first mode** (`toc_first=True`) is the precision option for large
-  manuals: LLM-routed heading navigation scored 19–20/20 (100% once) at
-  3.6s — extra LLM calls, not for every query.
+  manuals: LLM-routed heading navigation scored 20/20 (100%) at 3.7s —
+  section-scoped and full retrieval run in parallel (a wrong heading can't
+  hide the answer) and the menu learns from every search.
+- **The menu updates itself**: every past question becomes a TOC sub-entry
+  under the section that answered it ("can i return" → Return policy), so
+  repeat-adjacent questions navigate straight to the known answer location.
 - **Accuracy-first deployments** (policy chatbots, compliance, refund
   decisions) should use TOC-first + cache: the wrong answer costs more
   than a slow one, and once a policy answer is given it never changes —
@@ -186,7 +194,7 @@ not sync/async.
 | System | Chunking | Retrieval | Context fed to LLM |
 |---|---|---|---|
 | rag-kit (terse, local) | 1200 chars, 200 overlap, heading-aware (incl. RST underline headings) | FTS5 BM25 + rapidfuzz fuzzy + local vector (turbovec 4-bit), min-max normalized weighted fusion (vector 0.5 / fuzzy 0.3 / FTS5 0.2), top-10, sentence-window trimming | TOC (up to 1k chars) + top-10 trimmed chunks + concise synthesis prompt |
-| rag-kit (TOC-first) | same | LLM route → LLM heading selection → targeted search within sections → expansion (falls back to standard) | section-scoped chunks + synthesis |
+| rag-kit (TOC-first) | same | LLM route → LLM heading selection (incl. learned menu entries) → PARALLEL section-scoped + full hybrid search, normalized merge → expansion (falls back to standard) | section-scoped chunks + full-search chunks + synthesis |
 | rag-kit (terse, api) | same | same but qwen3-embedding-8b API vectors | same (19/20 @ 2.3–4.2s — stronger embedder, ~1s/query API round-trip) |
 | LlamaIndex (default) | 1024 tokens, 20 overlap | Vector top-k=2 (library default) | top-2 nodes |
 | LlamaIndex (k=10) | same | Vector top-k=10 | top-10 nodes |

@@ -16,6 +16,7 @@ from rag_kit._llm import (
 )
 from rag_kit._reranker import rerank as semantic_rerank
 from rag_kit._search import search as search_chunks
+from rag_kit._search import _norm_minmax
 from rag_kit._storage import Storage
 from rag_kit._trimming import trim_chunks
 
@@ -709,16 +710,48 @@ class Pipeline:
             toc = format_toc(mappings)
             self._storage.set_toc(file_id, toc)
 
-        selected = self._select_headings(question, toc, mappings)
+        # Learned menu: past searches appended as TOC sub-entries under
+        # the section that answered them ("can i return" -> Return policy).
+        # The menu updates itself with every search.
+        learned = self._learned_menu_entries(file_id, mappings)
+        menu = mappings + learned
+        toc_view = toc
+        if learned:
+            learned_lines = "\n".join(
+                f"  {e['hierarchical_path']} (chunks {e['chunk_start']}-{e['chunk_end']})"
+                for e in learned
+            )
+            toc_view = toc + (
+                "\n\nLearned menu entries (added automatically from past "
+                "searches — users kept asking these):\n" + learned_lines
+            )
+
+        selected = self._select_headings(question, toc_view, menu)
         if not selected:
             # LLM couldn't find relevant headings — fall back
             return self.query(file_id, question, llm_config)
 
-        # Step 2: Targeted search within selected section ranges
-        matched_chunks = self._targeted_search(file_id, question, selected, mappings)
+        # Step 2: PARALLEL search — section-scoped AND full hybrid, merged.
+        # Hedges wrong-section navigation: if heading selection picked a
+        # section without the answer, the full search still surfaces it.
+        # (Sequential TOC-first had a blind spot: a wrong section with
+        # keyword matches returned garbage without ever falling back.)
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_t = ex.submit(
+                self._targeted_search, file_id, question, selected, mappings
+            )
+            f_f = ex.submit(
+                search_chunks, self._storage, query=question, file_id=file_id,
+                top_k=10, vector_index=self._vector_index,
+            )
+            targeted = f_t.result()
+            full = f_f.result()
+        matched_chunks = self._merge_search_lists(targeted, full)
 
         if not matched_chunks:
-            # No matches within selected sections — fall back
+            # Nothing at all — fall back
             return self.query(file_id, question, llm_config)
 
         # Step 3: Context expansion
@@ -730,6 +763,57 @@ class Pipeline:
         )
 
         return answer, citations
+
+    def _learned_menu_entries(
+        self, file_id: int, mappings: list[dict], limit: int = 20
+    ) -> list[dict]:
+        """Derive menu sub-entries from the query cache (self-updating menu).
+
+        Every past search stored (question → answer, citations); each
+        question becomes a TOC entry under the section that answered it,
+        e.g. 'Return policy → [learned] can i return this item?'. The
+        entry carries the answered chunk range so targeted search goes
+        straight there.
+        """
+        qs = self._storage.cache_questions(f"file:{file_id}", limit=limit)
+        entries = []
+        for q in qs:
+            parent = None
+            for m in mappings:
+                if m["chunk_start"] <= q["chunk_start"] <= m["chunk_end"]:
+                    parent = m
+                    break
+            path = q["question"]
+            if parent:
+                path = f"{parent['hierarchical_path']} → {path}"
+            entries.append({
+                "hierarchical_path": f"[learned] {path}",
+                "chunk_start": q["chunk_start"],
+                "chunk_end": q["chunk_end"],
+                "level": (parent["level"] + 1) if parent else 3,
+                "learned": True,
+                "hits": q["hits"],
+            })
+        return entries
+
+    @staticmethod
+    def _merge_search_lists(*lists: list[dict]) -> list[dict]:
+        """Merge parallel search results — min-max normalized, equal weight,
+        dedupe by chunk_index summing evidence."""
+        by_key: dict[int, dict] = {}
+        for lst in lists:
+            if not lst:
+                continue
+            norms = _norm_minmax([r.get("score", 0.0) for r in lst])
+            for r, ns in zip(lst, norms):
+                key = r["chunk_index"]
+                contrib = ns * 0.5
+                if key in by_key:
+                    by_key[key]["score"] += contrib
+                else:
+                    by_key[key] = dict(r)
+                    by_key[key]["score"] = contrib
+        return sorted(by_key.values(), key=lambda x: x["score"], reverse=True)[:15]
 
     # ── Internal pipeline steps ───────────────────────────────────────
 

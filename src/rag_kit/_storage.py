@@ -618,6 +618,42 @@ class Storage:
                 for r in rows
             ]
 
+    def cache_questions(self, scope: str, limit: int = 50) -> list[dict]:
+        """Cached questions + the chunk ranges their answers cited.
+
+        Feeds the learned menu: each cached question maps to the chunk
+        range that answered it, which becomes a TOC sub-entry under the
+        parent section (e.g. 'can i return' -> Return policy section).
+        """
+        with self.session() as db:
+            rows = (
+                db.query(QueryCache)
+                .filter(QueryCache.scope == scope)
+                .order_by(QueryCache.hits.desc())
+                .limit(limit)
+                .all()
+            )
+            out = []
+            for r in rows:
+                try:
+                    cites = json.loads(r.citations)
+                except Exception:
+                    cites = []
+                idxs = [
+                    c.get("chunk_index")
+                    for c in cites
+                    if isinstance(c, dict) and c.get("chunk_index") is not None
+                ]
+                if not idxs:
+                    continue
+                out.append({
+                    "question": r.question,
+                    "chunk_start": min(idxs),
+                    "chunk_end": max(idxs),
+                    "hits": r.hits,
+                })
+            return out
+
     # ── Section Mappings ────────────────────────────────────────────
 
     def set_section_mappings(self, file_id: int, mappings: list[dict]) -> bool:

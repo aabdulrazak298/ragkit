@@ -95,3 +95,62 @@ def test_cache_top_ranks_most_asked(tmp_db):
     assert top[0]["question"] == "q1"
     assert top[0]["hits"] == 3
     assert top[1]["question"] == "q2"
+
+
+def test_cache_questions_derives_chunk_range(tmp_db):
+    st = _make_storage(tmp_db)
+    st.cache_put("file:1", "can i return this item",
+                 "can i return this item", "No — policy 12.4.",
+                 [{"chunk_index": 40}, {"chunk_index": 42}, {"chunk_index": 41}])
+    qs = st.cache_questions("file:1")
+    assert len(qs) == 1
+    assert qs[0]["question"] == "can i return this item"
+    assert qs[0]["chunk_start"] == 40
+    assert qs[0]["chunk_end"] == 42
+    # No citations -> no learned entry
+    st.cache_put("file:1", "q without cites", "q without cites", "a", [])
+    qs = st.cache_questions("file:1")
+    assert len(qs) == 1
+
+
+def test_learned_menu_entries_attach_parent_section(tmp_db):
+    st = _make_storage(tmp_db)
+    fid = st.create_file(
+        url="https://example.com/doc.txt", file_path=None,
+        filename="doc.txt", source_type="url", content_hash="learned1",
+        chunk_size=100, overlap=10, total_chunks=3,
+        chunks=[{"text": f"chunk {i}", "keywords": "", "keywords_list": [],
+                 "preview": "", "offset": i} for i in range(3)],
+        namespace="bench",
+    )
+    st.set_section_mappings(fid, [
+        {"hierarchical_path": "Return policy", "level": 1,
+         "chunk_start": 0, "chunk_end": 1},
+        {"hierarchical_path": "Shipping", "level": 1,
+         "chunk_start": 1, "chunk_end": 2},
+    ])
+    st.cache_put(f"file:{fid}", "can i return this item",
+                 "can i return this item", "No — policy 12.4.",
+                 [{"chunk_index": 0}])
+    from rag_kit._pipeline import Pipeline
+    pipe = Pipeline(st, None)
+    entries = pipe._learned_menu_entries(fid, st.get_section_mappings(fid))
+    assert len(entries) == 1
+    assert entries[0]["hierarchical_path"] == "[learned] Return policy → can i return this item"
+    assert entries[0]["chunk_start"] == 0
+    assert entries[0]["level"] == 2  # parent level + 1
+
+
+def test_merge_search_lists_dedupes_and_keeps_both(tmp_db):
+    from rag_kit._pipeline import Pipeline
+    pipe = Pipeline(_make_storage(tmp_db), None)
+    a = [{"chunk_index": 1, "score": 0.9, "source": "targeted"},
+         {"chunk_index": 2, "score": 0.5, "source": "targeted"}]
+    b = [{"chunk_index": 2, "score": 0.8, "source": "full"},
+         {"chunk_index": 3, "score": 0.7, "source": "full"}]
+    merged = pipe._merge_search_lists(a, b)
+    idxs = [m["chunk_index"] for m in merged]
+    assert idxs == [1, 2, 3]  # all three, deduped, sorted by fused score
+    # chunk 2 appears once (evidence summed from both sources)
+    assert sum(1 for m in merged if m["chunk_index"] == 2) == 1
+    assert merged[1]["score"] > merged[2]["score"]
