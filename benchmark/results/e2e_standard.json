@@ -5,7 +5,7 @@
     "reader": "extractive (SQuAD-standard), qwen/qwen3.5-flash-02-23 temp 0.1 reasoning off",
     "retriever": "rag-kit hybrid, all-MiniLM-L6-v2 local",
     "EM": 0.887,
-    "F1": 0.910,
+    "F1": 0.91,
     "Recall@10": 0.953,
     "latency_s_per_query": 0.96
   },
@@ -18,12 +18,35 @@
     "exact_match": 0.105,
     "contains_judge_free": 0.185,
     "F1": 0.125,
-    "gold_literal_in_pages": 0.110,
-    "gold_in_top10_retrieved": 0.120,
+    "gold_literal_in_pages": 0.11,
+    "gold_in_top10_retrieved": 0.12,
     "latency_s_per_query": 2.0,
     "paper_reference_task1_accuracy": {
       "GPT-4 Turbo + RAG": 0.359,
       "Llama 3 70B + RAG": 0.356
+    },
+    "reader_model_comparison": {
+      "qwen3.5-flash reader + qwen judge": {
+        "judge": 0.325,
+        "exact": 0.105,
+        "contains": 0.185,
+        "F1": 0.125,
+        "latency_s": 2.0
+      },
+      "deepseek-v4-flash(thinking) reader + qwen judge": {
+        "judge": 0.375,
+        "exact": 0.13,
+        "contains": 0.215,
+        "F1": 0.164,
+        "latency_s": 2.64
+      },
+      "deepseek-v4-flash(thinking) reader + deepseek judge": {
+        "judge": 0.375,
+        "exact": 0.12,
+        "contains": 0.215,
+        "F1": 0.171,
+        "latency_s": 2.85
+      }
     }
   },
   "run_date": "2026-08-26",

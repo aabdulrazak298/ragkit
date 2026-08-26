@@ -148,6 +148,21 @@ different measure). The official metric uses an LLM judge; both the
 judge-free floor (exact 0.105) and the official-style judge (0.325) are
 reported.
 
+**Reader-model effect (same 200 questions, judge isolation):**
+
+| Reader + judge | Judge acc | Exact | Contains | F1 | Latency |
+|---|---|---|---|---|---|
+| qwen3.5-flash + qwen judge | 0.325 | 0.105 | 0.185 | 0.125 | 2.0 s |
+| **deepseek-v4-flash (thinking) + qwen judge** | **0.375** | 0.130 | 0.215 | 0.164 | 2.6 s |
+| deepseek-v4-flash (thinking) + deepseek judge | 0.375 | 0.120 | 0.215 | 0.171 | 2.9 s |
+
+The stronger reader adds **+5.0 points** (0.325 → 0.375) and improves every
+judge-free metric; swapping the judge changes nothing (0.375 = 0.375), so
+the gain is real answer quality, not judge leniency. With the DeepSeek
+reader, rag-kit **beats the paper's best baseline** (GPT-4 Turbo + RAG
+0.359). The thinking-mode DeepSeek reader costs ~1.4× latency
+(2.6-2.9 s vs 2.0 s per query).
+
 Reproduce: `cd benchmark && .venv/bin/python run_rag_e2e.py --dataset squad
 --max-q 300 && .venv/bin/python run_rag_e2e.py --dataset crag --max-q 200
 --judge` (downloads SQuAD ~35MB, CRAG ~740MB first run; index is reused).

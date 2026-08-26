@@ -145,6 +145,8 @@ def fetch_crag(max_q: int | None = None) -> list[dict]:
         print(f"crag: extracted {len(picked)} questions -> {out}", flush=True)
     else:
         picked = json.loads(out.read_text())
+        if max_q:
+            picked = picked[:max_q]
         print(f"crag: loaded {len(picked)} processed questions", flush=True)
     return picked
 
@@ -392,7 +394,9 @@ def run_squad(max_q: int | None = None, embed: str = "local",
 
 
 def run_crag(max_q: int | None = None, embed: str = "local",
-             force_reindex: bool = False, use_judge: bool = False):
+             force_reindex: bool = False, use_judge: bool = False,
+             model: str = MODEL, judge_model: str | None = None,
+             max_tokens: int = 512):
     from rag_kit import RAGSystem, LLMConfig
     from rag_kit._search import search as search_chunks
     import numpy as np
@@ -402,8 +406,17 @@ def run_crag(max_q: int | None = None, embed: str = "local",
     db = CACHE / "crag_bench.db"
     if db.exists():
         db.unlink()
-    llm_cfg = LLMConfig(model=MODEL, temperature=TEMP, api_key=_api_key(),
-                        max_tokens=512, reasoning=False)
+    reasoning = None if model.startswith("deepseek") else False
+    reader_key = None if model.startswith("deepseek") else _api_key()
+    llm_cfg = LLMConfig(model=model, temperature=TEMP, api_key=reader_key,
+                        max_tokens=max_tokens, reasoning=reasoning)
+    judge_cfg = llm_cfg
+    if judge_model and judge_model != model:
+        jreasoning = None if judge_model.startswith("deepseek") else False
+        jkey = None if judge_model.startswith("deepseek") else _api_key()
+        judge_cfg = LLMConfig(model=judge_model, temperature=TEMP,
+                              api_key=jkey, max_tokens=max_tokens,
+                              reasoning=jreasoning)
     rag = RAGSystem(db_path=str(db), llm_config=llm_cfg, max_files=0,
                     embed_backend=embed, use_cache=False)
 
@@ -479,7 +492,7 @@ def run_crag(max_q: int | None = None, embed: str = "local",
     judge_acc = None
     if use_judge and judged:
         t0 = time.time()
-        scores = [crag_judge(llm_cfg, q, p, a) for q, p, a in judged]
+        scores = [crag_judge(judge_cfg, q, p, a) for q, p, a in judged]
         judge_acc = sum(scores) / len(scores)
         print(f"judge    (LLM verdict, official-style) {judge_acc:.3f} "
               f"[{time.time() - t0:.0f}s]")
@@ -499,8 +512,16 @@ if __name__ == "__main__":
     ap.add_argument("--force-reindex", action="store_true")
     ap.add_argument("--judge", action="store_true",
                     help="LLM-judge scoring (official CRAG metric style)")
+    ap.add_argument("--model", default=MODEL,
+                    help="reader model (deepseek/deepseek-v4-flash for "
+                         "DeepSeek direct with thinking)")
+    ap.add_argument("--judge-model", default=None,
+                    help="judge model (default: same as --model)")
+    ap.add_argument("--max-tokens", type=int, default=512,
+                    help="output cap (raise for thinking models)")
     args = ap.parse_args()
     if args.dataset == "squad":
         run_squad(args.max_q, args.embed, args.force_reindex)
     else:
-        run_crag(args.max_q, args.embed, args.force_reindex, args.judge)
+        run_crag(args.max_q, args.embed, args.force_reindex, args.judge,
+                 args.model, args.judge_model, args.max_tokens)
