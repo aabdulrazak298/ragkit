@@ -113,19 +113,22 @@ rag-kit's hybrid retriever with the local MiniLM embedder; generator is
 qwen3.5-flash (temp 0.1, reasoning off) — the same model as the head-to-head
 benchmarks.
 
-**SQuAD 1.1** (dev, first 300 questions; open-book corpus = all 20,963
-paragraphs of train+dev):
+**SQuAD 1.1** (FULL official dev set — 10,570 questions; open-book corpus =
+all 20,963 paragraphs of train+dev):
 
 | Metric | Score |
 |---|---|
-| EM (exact match, official SQuAD scorer) | **0.887** |
-| F1 (official SQuAD scorer) | **0.910** |
-| Retrieval recall@10 (gold paragraph in top-10) | **0.953** |
-| Latency | 0.96 s/query |
+| EM (exact match, official SQuAD scorer) | **0.730** |
+| F1 (official SQuAD scorer) | **0.830** |
+| Retrieval recall@10 (gold paragraph in top-10) | **0.934** |
+| Latency | 0.83 s/query |
 
-Zero-shot, no fine-tuning, local embeddings, no judges. Retrieval recall
-@10 (0.953) is the ceiling the reader works under; the EM/F1 are right at
-the level of fine-tuned extractive SQuAD models (BERT-class ~0.87-0.89 EM).
+Zero-shot, no fine-tuning, local embeddings, no judges. Reported on the
+**full official dev set** — the same evaluation every SQuAD paper uses
+(fine-tuned BERT-class EM is ~0.80-0.87; human ceiling 91.2). A first-300
+subset run (EM 0.887 / F1 0.910) is kept in `results/e2e_standard.json` as
+`squad_300_subset` — it is an easier slice and the full-dev numbers are the
+honest headline.
 
 **CRAG Task 1&2** (Meta 2024; dev, first 200 validation questions, web
 questions, 5 full HTML pages per question as retrieval context):

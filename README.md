@@ -73,9 +73,10 @@ the section that answered it.
 | rag-kit vector · qwen3-embedding-8b API | **0.771** |
 | Reference: BM25 / ColBERT / SPLADE / E5 | 0.665 / 0.671 / 0.699 / 0.737 |
 
-**End-to-end — SQuAD 1.1** (300 dev questions, open-book over the full
-20,963-paragraph corpus): EM **0.887** · F1 **0.910** · retrieval recall@10
-**0.953** — zero-shot, no fine-tuning, no judges.
+**End-to-end — SQuAD 1.1** (FULL official dev set — 10,570 questions,
+open-book over the full 20,963-paragraph corpus): EM **0.730** · F1
+**0.830** · retrieval recall@10 **0.934** — zero-shot, no fine-tuning, no
+judges, reported the same way every SQuAD paper does.
 
 **End-to-end — CRAG Task 1** (Meta 2024; 200 web questions, 5 HTML pages
 each, official-style auto-judge): **0.325** with a flash reader, **0.375**
