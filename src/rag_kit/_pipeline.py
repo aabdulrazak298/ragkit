@@ -715,10 +715,12 @@ class Pipeline:
         # The menu updates itself with every search.
         learned = self._learned_menu_entries(file_id, mappings)
         menu = mappings + learned
-        # Book-style menu: indented tree with learned questions nested
-        # under the section that answered them — like scanning a thick
-        # book's TOC and drilling to the chapter.
-        toc_view = self._render_book_menu(mappings, learned) if learned else toc
+        # Book anatomy: the menu holds headings/subheadings only (clean
+        # tree); past questions live in the question index below it —
+        # 'question → section (chunks, asked N×)' — exactly how a book
+        # has a TOC for structure and an index for lookup.
+        index = self._render_question_index(learned)
+        toc_view = toc + ("\n\n" + index) if index else toc
 
         selected = self._select_headings(question, toc_view, menu)
         if not selected:
@@ -793,33 +795,27 @@ class Pipeline:
         return entries
 
     @staticmethod
-    def _render_book_menu(mappings: list[dict], learned: list[dict]) -> str:
-        """Render the menu like a thick book's table of contents.
+    def _render_question_index(learned: list[dict]) -> str:
+        """Render past questions as a back-of-book style index.
 
-        Indented tree: chapter → section → subsection, with learned
-        questions nested directly under the section that answered them
-        (most-asked first) — exactly how a reader scans a book menu and
-        drills to the page. Orphaned learned entries (no parent found)
-        go at the end.
+        A book menu holds headings/subheadings; questions live in the
+        index — 'question → section (chunks, asked N×)', most-asked
+        first. The AI gets the clean menu for structure and this index
+        for lookup, without polluting the menu tree.
         """
-        kids: dict[str, list[dict]] = {}
-        for e in learned:
-            kids.setdefault(e.get("_parent_title"), []).append(e)
-        for k in kids.values():
-            k.sort(key=lambda x: -x["hits"])
-
-        lines = []
-        for m in mappings:
-            indent = "  " * (m["level"] - 1)
-            lines.append(f"{indent}{m['title']}")
-            for k in kids.get(m["title"], []):
-                kid_indent = "  " * (k["level"] - 1)
-                lines.append(
-                    f"{kid_indent}• [asked] {k['title']} "
-                    f"(chunks {k['chunk_start']}-{k['chunk_end']}, asked {k['hits']}×)"
-                )
-        for k in kids.get(None, []):
-            lines.append(f"  • [asked] {k['title']} (chunks {k['chunk_start']}-{k['chunk_end']})")
+        if not learned:
+            return ""
+        lines = [
+            "Question index (users' past questions, each answered in the "
+            "section it points to — most asked first):"
+        ]
+        for e in sorted(learned, key=lambda x: -x["hits"]):
+            parent = e.get("_parent_title")
+            loc = f"{parent} → " if parent else ""
+            lines.append(
+                f'  "{e["title"]}" → {loc}chunks {e["chunk_start"]}-'
+                f'{e["chunk_end"]} (asked {e["hits"]}×)'
+            )
         return "\n".join(lines)
 
     @staticmethod
