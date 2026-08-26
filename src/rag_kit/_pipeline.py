@@ -729,32 +729,42 @@ class Pipeline:
             # LLM couldn't find relevant headings — fall back
             return self.query(file_id, question, llm_config)
 
-        # Step 2: PARALLEL search — section-scoped, full hybrid, AND a full
-        # lexical leg (FTS5+fuzzy only), all merged. Hedges wrong-section
-        # navigation AND identifier/term queries: exact tags, part numbers
-        # and code symbols that vector search buries surface through the
-        # independent lexical pass (see BRIGHT: rare/identifier terms beat
-        # dense retrieval). Each leg is min-max normalized on its own scale
-        # before fusion, so the lexical leg is never diluted by semantic
-        # scores.
+        # Step 2a: spawn search terms — the agent has just read the TOC;
+        # it now reasons about the query and emits 3-7 search terms
+        # (synonyms, keywords, identifiers, alternate phrasings) that get
+        # searched in parallel. BRIGHT-style query expansion: reasoning
+        # about the query before retrieval is exactly what lifts the
+        # top reasoning-retrievers on the current leaderboards.
+        terms = self._expand_terms(question, toc_view, menu)
+        terms = [question] + [t for t in terms if t and t != question]
+        terms = terms[:8]  # original question + up to 7 spawned terms
+
+        # Step 2b: PARALLEL search — targeted section-scoped (original
+        # question), plus per-term full hybrid AND per-term full lexical
+        # (FTS5+fuzzy only). Every leg is min-max normalized on its own
+        # scale before fusion, so term hits and identifier matches are
+        # never diluted by semantic scores. Hedges wrong-section
+        # navigation AND rare-term/identifier queries.
         from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=3) as ex:
-            f_t = ex.submit(
-                self._targeted_search, file_id, question, selected, mappings
-            )
-            f_f = ex.submit(
-                search_chunks, self._storage, query=question, file_id=file_id,
-                top_k=10, vector_index=self._vector_index,
-            )
-            f_l = ex.submit(
-                search_chunks, self._storage, query=question, file_id=file_id,
-                top_k=10, vector_index=self._vector_index, mode="lexical",
-            )
-            targeted = f_t.result()
-            full = f_f.result()
-            lexical = f_l.result()
-        matched_chunks = self._merge_search_lists(targeted, full, lexical)
+        with ThreadPoolExecutor(
+                max_workers=min(16, 1 + 2 * len(terms))) as ex:
+            futures = [
+                ex.submit(
+                    self._targeted_search, file_id, question, selected,
+                    mappings)
+            ]
+            for t in terms:
+                futures.append(ex.submit(
+                    search_chunks, self._storage, query=t, file_id=file_id,
+                    top_k=8, vector_index=self._vector_index,
+                ))
+                futures.append(ex.submit(
+                    search_chunks, self._storage, query=t, file_id=file_id,
+                    top_k=8, vector_index=self._vector_index, mode="lexical",
+                ))
+            results = [f.result() for f in futures]
+        matched_chunks = self._merge_search_lists(*results)
 
         if not matched_chunks:
             # Nothing at all — fall back
@@ -975,6 +985,40 @@ class Pipeline:
                     break
 
         return selected
+
+    def _expand_terms(
+        self, question: str, toc: str, mappings: list[dict]
+    ) -> list[str]:
+        """Spawn 3-7 search terms from the question + TOC context.
+
+        Query expansion after reading the TOC: synonyms, keywords,
+        identifiers, alternate phrasings — searched in parallel by the
+        caller. Reasoning about the query before retrieval is the exact
+        lever the top reasoning-retrievers use on BRIGHT-style
+        benchmarks. Returns up to 7 terms; falls back to [question] if
+        the LLM call fails.
+        """
+        heading_lines = "\n".join(
+            f"  {m['hierarchical_path']}" for m in mappings[:200])
+        prompt = (
+            "You are preparing search terms for a technical manual lookup.\n\n"
+            f"TOC sections:\n{heading_lines}\n\n"
+            f"Question: {question}\n\n"
+            "Spawn 3 to 7 SEARCH TERMS that would locate the answer. Mix:\n"
+            "- exact phrases and keywords from the question\n"
+            "- synonyms and alternative phrasings\n"
+            "- likely identifiers, tags, part numbers, or technical terms\n"
+            "- terms matching the relevant TOC sections\n\n"
+            "Return ONLY valid JSON:\n"
+            '{"terms": ["term 1", "term 2", ...]}'
+        )
+        try:
+            result = json_completion([{"role": "user", "content": prompt}])
+            terms = [str(t).strip() for t in result.get("terms", [])][:7]
+            terms = [t for t in terms if t]
+            return terms if terms else [question]
+        except Exception:
+            return [question]
 
     def _targeted_search(
         self,
