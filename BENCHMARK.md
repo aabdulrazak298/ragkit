@@ -17,6 +17,8 @@ against ground truth verified to exist in the corpus.
 | rag-kit (terse async, local) | 19/20 (95%) | 19/20 (95%) | 1.5s | 1,669 | 71 | $0.000135 | $0.0027 |
 | rag-kit (TOC-first, local) | **20/20 (100%)** | 19/20 (95%) | 3.7s | 1,758 | 460 | $0.000234 | $0.0047 |
 | rag-kit (TOC-first async, local) | 19/20 (95%) | 19/20 (95%) | 3.7s | 1,758 | 467 | $0.000235 | $0.0047 |
+| rag-kit (TOC-first + term expansion, local) | 19/20 (95%) | 20/20 (100%) | 7.1s | 11,226 | 650 | $0.000899 | $0.0180 |
+| rag-kit (TOC-first + term expansion async, local) | **20/20 (100%)** | 20/20 (100%) | 6.7s | 10,867 | 613 | $0.000866 | $0.0173 |
 | LlamaIndex (k=2) | 16/20 (80%) | 16/20 (80%) | 0.9s | 1,941 | 48 | $0.000140 | $0.0028 |
 | LlamaIndex (k=10) | 18/20 (90%) | 19/20 (95%) | 5.2s | 1,171 | 60 | $0.000091 | $0.0018 |
 
