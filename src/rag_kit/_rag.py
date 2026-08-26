@@ -89,13 +89,16 @@ class RAGSystem:
         search_threshold: float | None = None,
         max_files: int = 50,
         enable_vectors: bool = True,
+        embed_backend: str = "api",
     ):
         self._storage = Storage(db_path)
         self._chunk_size = default_chunk_size or DEFAULT_CHUNK_SIZE
         self._overlap = default_overlap or DEFAULT_CHUNK_OVERLAP
         self._threshold = search_threshold or DEFAULT_SEARCH_THRESHOLD
         self._max_files = max_files
-        self._vector_index = VectorIndex() if enable_vectors else None
+        self._vector_index = (
+            VectorIndex(embed_backend=embed_backend) if enable_vectors else None
+        )
         self._pipeline = Pipeline(
             self._storage, llm_config,
             search_threshold=self._threshold,

@@ -157,7 +157,7 @@ def _restore_capture():
 
 def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
                out_dir: Path, model: str, async_mode: bool = False,
-               terse: bool = False) -> dict:
+               terse: bool = False, embed: str = "api") -> dict:
     from rag_kit import RAGSystem, LLMConfig
 
     _install_capture()
@@ -172,7 +172,7 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
     rag = RAGSystem(db_path=str(db),
                     llm_config=LLMConfig(model=model, temperature=TEMP, api_key=api_key,
                                          max_tokens=1024, reasoning=False),
-                    max_files=0)
+                    max_files=0, embed_backend=embed)
 
     t0 = time.time()
     fid = rag.load_file(corpus_path, namespace="bench")
@@ -244,7 +244,7 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
             _one_query(qid, q, phrases)
 
     _restore_capture()
-    _label = f"{'terse ' if terse else ''}{'async' if async_mode else 'sync'}"
+    _label = f"{'terse ' if terse else ''}{'async' if async_mode else 'sync'}{', ' + embed if embed != 'api' else ''}"
     return dict(system=f"rag-kit ({_label})",
                 build_s=build_s, rows=rows)
 
@@ -427,6 +427,8 @@ def main():
                     help="run rag-kit async before sync (order confound check)")
     ap.add_argument("--terse", action="store_true",
                     help="run rag-kit with the concise synthesis prompt (fewer output tokens)")
+    ap.add_argument("--embed", choices=["api", "local"], default="api",
+                    help="rag-kit embedding backend: api (OpenRouter qwen3-embedding-8b) or local (all-MiniLM-L6-v2)")
     ap.add_argument("--only", choices=["ragkit", "llamaindex"], default=None)
     ap.add_argument("--max-q", type=int, default=None,
                     help="run only the first N questions (smoke test)")
@@ -461,9 +463,10 @@ def main():
         if args.async_first:
             order = [(True, "async"), (False, "sync")]
         for async_mode, label in order:
-            print(f"running rag-kit ({label}{', terse' if args.terse else ''})...")
+            print(f"running rag-kit ({label}{', terse' if args.terse else ''}{', ' + args.embed if args.embed != 'api' else ''})...")
             results.append(run_ragkit(str(corpus_path), api_key, price, out_dir,
-                                      args.model, async_mode=async_mode, terse=args.terse))
+                                      args.model, async_mode=async_mode, terse=args.terse,
+                                      embed=args.embed))
             _save_partial()
     if args.only in (None, "llamaindex"):
         # LlamaIndex needs a .txt extension for its default reader

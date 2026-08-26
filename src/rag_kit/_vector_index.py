@@ -17,6 +17,7 @@ import numpy as np
 import turbovec as tv
 
 from rag_kit._llm import _get_client
+from rag_kit._local_embed import embed_texts as _local_embed_texts, is_model_available
 
 EMBEDDING_URL = "https://openrouter.ai/api/v1/embeddings"
 DEFAULT_EMBED_MODEL = "qwen/qwen3-embedding-8b"
@@ -60,27 +61,37 @@ class VectorIndex:
         dim: int = 4096,
         bit_width: int = DEFAULT_BIT_WIDTH,
         index_dir: str | None = None,
+        embed_backend: str = "api",
     ):
         self._api_key = api_key or os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
         self._embed_model = embed_model
-        self._dim = dim
+        self._embed_backend = embed_backend
+        self._dim = 384 if embed_backend == "local" else dim
         self._bit_width = bit_width
         self._index_dir = index_dir or DEFAULT_INDEX_DIR
         os.makedirs(self._index_dir, exist_ok=True)
 
         # Lazy turbovec index (dim set at construction so it's pre-allocated)
-        self._index = tv.IdMapIndex(dim=dim, bit_width=bit_width)
-        self._enabled = bool(self._api_key)
+        self._index = tv.IdMapIndex(dim=self._dim, bit_width=bit_width)
+        if embed_backend == "local":
+            self._enabled = is_model_available()
+        else:
+            self._enabled = bool(self._api_key)
 
     # ── Embedding ──────────────────────────────────────────────────────
 
     def embed(self, texts: list[str]) -> np.ndarray:
-        """Embed a list of texts via OpenRouter API.
+        """Embed a list of texts.
 
-        Returns float32 array of shape (len(texts), dim), L2-normalised.
+        Backend "api" uses OpenRouter (qwen3-embedding-8b); backend "local"
+        uses all-MiniLM-L6-v2 via sentence-transformers (no API call, no
+        network, no cost). Returns float32 (len(texts), dim), L2-normalised.
         """
         if not self._enabled or not texts:
             return np.empty((0, self._dim), dtype=np.float32)
+
+        if self._embed_backend == "local":
+            return _local_embed_texts(texts)
 
         resp = _get_client().post(
             EMBEDDING_URL,
@@ -199,6 +210,12 @@ class VectorIndex:
 
     # ── Persistence ────────────────────────────────────────────────────
 
+    def _ns_file(self, namespace: str) -> str:
+        """Index file name — backend-tagged so api (4096d) and local (384d)
+        indices never collide on the same namespace."""
+        tag = "local" if self._embed_backend == "local" else "api"
+        return f"{namespace}.{tag}.tvim"
+
     def save(self, namespace: str = "default") -> str:
         """Persist the index to a .tvim file.
 
@@ -206,7 +223,7 @@ class VectorIndex:
         """
         if not self._enabled:
             return ""
-        path = os.path.join(self._index_dir, f"{namespace}.tvim")
+        path = os.path.join(self._index_dir, self._ns_file(namespace))
         self._index.write(path)
         return path
 
@@ -214,7 +231,7 @@ class VectorIndex:
         """Load a persisted index. Returns True on success."""
         if not self._enabled:
             return False
-        path = os.path.join(self._index_dir, f"{namespace}.tvim")
+        path = os.path.join(self._index_dir, self._ns_file(namespace))
         if not os.path.exists(path):
             return False
         self._index = tv.IdMapIndex.load(path)

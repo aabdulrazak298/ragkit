@@ -75,7 +75,10 @@ def search(
         r["source"] = "fts5"
 
     if use_vectors:
-        return _search_hybrid(storage, query, fts5_results, vector_index, top_k)
+        return _search_hybrid(
+            storage, query, fts5_results, vector_index, top_k,
+            file_id=file_id, namespace=namespace, threshold=threshold,
+        )
     else:
         return _search_fallback(storage, query, fts5_results, file_id, namespace, threshold, top_k)
 
@@ -86,6 +89,9 @@ def _search_hybrid(
     fts5_results: list[dict],
     vector_index: Any,
     top_k: int,
+    file_id: int | None = None,
+    namespace: str | None = None,
+    threshold: float = DEFAULT_THRESHOLD,
 ) -> list[dict[str, Any]]:
     """Hybrid search: vector search primary, FTS5 fills gaps.
 
@@ -106,19 +112,32 @@ def _search_hybrid(
             r["preview"] = ""
         r["source"] = "vector"
 
-    # Step 2: Merge — vector results first, then FTS5 fills gaps
-    seen = {(r["file_id"], r["chunk_index"]) for r in vec_results}
-    merged = list(vec_results)
+    # Step 2: Fuzzy supplement — catches compound identifiers that FTS5
+    # tokenization misses (e.g. "executescript" vs "executes a script").
+    fuzzy_results = _fuzzy_scan(storage, query, file_id, namespace, threshold)
+    for r in fuzzy_results:
+        r["source"] = "fuzzy"
 
-    for r in fts5_results:
-        key = (r["file_id"], r["chunk_index"])
-        if key not in seen:
-            r["source"] = "fts5_supplement"
-            merged.append(r)
-            seen.add(key)
+    # Step 3: Merge — dedupe by (file_id, chunk_index), keeping the
+    # HIGHEST score for each chunk. A chunk found by both vector and fuzzy
+    # must not be dropped with its weaker score (previously the vector
+    # version won by order, losing strong fuzzy/FTS5 hits).
+    by_key: dict[tuple[int, int], dict] = {}
+    for r in vec_results:
+        by_key[(r["file_id"], r["chunk_index"])] = r
 
-    # Step 3: Sort by score descending
-    merged.sort(key=lambda x: x["score"], reverse=True)
+    def _merge_in(lst: list[dict], source: str) -> None:
+        for r in lst:
+            key = (r["file_id"], r["chunk_index"])
+            r["source"] = source
+            if key not in by_key or r["score"] > by_key[key]["score"]:
+                by_key[key] = r
+
+    _merge_in(fuzzy_results, "fuzzy_supplement")
+    _merge_in(fts5_results, "fts5_supplement")
+
+    # Step 4: Sort by score descending
+    merged = sorted(by_key.values(), key=lambda x: x["score"], reverse=True)
     return merged[:top_k]
 
 
@@ -135,17 +154,16 @@ def _search_fallback(
     # Step 1: Fuzzy linear scan
     fuzzy_results = _fuzzy_scan(storage, query, file_id, namespace, threshold)
 
-    # Step 2: Merge — fuzzy scores take priority, FTS5 fills gaps
-    seen = {(r["file_id"], r["chunk_index"]) for r in fuzzy_results}
-    merged = list(fuzzy_results)
-
+    # Step 2: Merge — dedupe by (file_id, chunk_index), keep highest score
+    by_key: dict[tuple[int, int], dict] = {
+        (r["file_id"], r["chunk_index"]): r for r in fuzzy_results
+    }
     for r in fts5_results:
         key = (r["file_id"], r["chunk_index"])
-        if key not in seen:
-            merged.append(r)
-            seen.add(key)
+        if key not in by_key or r["score"] > by_key[key]["score"]:
+            by_key[key] = r
 
-    merged.sort(key=lambda x: x["score"], reverse=True)
+    merged = sorted(by_key.values(), key=lambda x: x["score"], reverse=True)
     return merged[:top_k]
 
 

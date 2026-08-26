@@ -400,7 +400,7 @@ class Storage:
             sql = """
                 SELECT c.file_id, c.chunk_index, c.chunk_text,
                        c.preview, c.id as chunk_id,
-                       bm25(rag_chunks_fts, 0.0, 0.0, 0.0, 1.0) AS score
+                       bm25(rag_chunks_fts) AS score
                 FROM rag_chunks_fts
                 JOIN rag_chunks c ON c.id = rag_chunks_fts.rowid
                 JOIN rag_files f ON f.id = c.file_id
