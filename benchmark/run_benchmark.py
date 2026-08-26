@@ -157,7 +157,8 @@ def _restore_capture():
 
 def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
                out_dir: Path, model: str, async_mode: bool = False,
-               terse: bool = False, embed: str = "api", toc_first: bool = False) -> dict:
+               terse: bool = False, embed: str = "api", toc_first: bool = False,
+               repeat_q: int = 0) -> dict:
     from rag_kit import RAGSystem, LLMConfig
 
     _install_capture()
@@ -244,11 +245,31 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
         for qid, (q, phrases) in zip(QUESTION_IDS, QUESTIONS):
             _one_query(qid, q, phrases)
 
+    # Repeat pass: measure query-cache hit latency on the sync instance.
+    # The first pass populated the cache (update-on-every-search); the
+    # repeat pass should be served with no retrieval and no LLM call.
+    repeat_rows: list[dict] = []
+    if repeat_q > 0 and not async_mode:
+        for qid, (q, phrases) in list(zip(QUESTION_IDS, QUESTIONS))[:repeat_q]:
+            t0 = time.time()
+            res = rag.query(fid, q, terse=terse, toc_first=toc_first)
+            dt = time.time() - t0
+            repeat_rows.append(dict(
+                id=qid, latency=dt,
+                cached=bool(res.metrics.get("cached")),
+                hits=res.metrics.get("cache_hits", 0),
+                correct=phrase_hit(res.answer, phrases),
+            ))
+        print(f"  repeat pass: {len(repeat_rows)} cache queries, "
+              f"avg {sum(r['latency'] for r in repeat_rows)/len(repeat_rows):.4f}s",
+              file=sys.stderr, flush=True)
+
     _restore_capture()
     _label = (f"{'toc-first ' if toc_first else ''}{'terse ' if terse else ''}"
               f"{'async' if async_mode else 'sync'}{', ' + embed if embed != 'api' else ''}")
     return dict(system=f"rag-kit ({_label})",
-                build_s=build_s, rows=rows)
+                build_s=build_s, rows=rows,
+                repeat_rows=repeat_rows if repeat_rows else None)
 
 
 # ── LlamaIndex runner ────────────────────────────────────────────────
@@ -433,6 +454,8 @@ def main():
                     help="rag-kit embedding backend: api (OpenRouter qwen3-embedding-8b) or local (all-MiniLM-L6-v2)")
     ap.add_argument("--toc-first", action="store_true",
                     help="run rag-kit with the TOC-first pipeline (route -> heading selection -> targeted search)")
+    ap.add_argument("--repeat-q", type=int, default=0,
+                    help="after the sync rag-kit run, re-ask the first N questions to measure query-cache hit latency")
     ap.add_argument("--only", choices=["ragkit", "llamaindex"], default=None)
     ap.add_argument("--max-q", type=int, default=None,
                     help="run only the first N questions (smoke test)")
@@ -472,7 +495,8 @@ def main():
                   f"{', ' + args.embed if args.embed != 'api' else ''})...")
             results.append(run_ragkit(str(corpus_path), api_key, price, out_dir,
                                       args.model, async_mode=async_mode, terse=args.terse,
-                                      embed=args.embed, toc_first=args.toc_first))
+                                      embed=args.embed, toc_first=args.toc_first,
+                                      repeat_q=args.repeat_q))
             _save_partial()
     if args.only in (None, "llamaindex"):
         # LlamaIndex needs a .txt extension for its default reader
@@ -486,6 +510,16 @@ def main():
             results.append(run_llamaindex(str(txt), api_key, price, top_k=10, label="LlamaIndex (k=10)", model=args.model))
 
     summ = [summarize(r) for r in results]
+
+    # Print repeat-pass (cache hit) summary alongside the main table
+    for r in results:
+        rr = r.get("repeat_rows")
+        if rr:
+            avg = sum(x["latency"] for x in rr) / len(rr)
+            cached = sum(1 for x in rr if x["cached"])
+            print(f"\nrepeat-pass ({r['system']}): {cached}/{len(rr)} cache hits, "
+                  f"avg {avg:.4f}s (first pass ~1.0s)")
+
     md = render_markdown(results, summ, args.model, price, corpus_path.name)
 
     payload = dict(model=args.model, price={"in": price[0], "out": price[1]},

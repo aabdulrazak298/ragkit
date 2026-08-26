@@ -52,6 +52,14 @@ def _clean_text(text: str) -> str:
     return text.encode("utf-8", errors="replace").decode("utf-8")
 
 
+def _qnorm(text: str) -> str:
+    """Normalize a question for cache keying: lowercase, collapse spaces,
+    strip leading/trailing punctuation."""
+    import re
+
+    return re.sub(r"\s+", " ", text.strip().lower()).strip(" ?!.,;:")
+
+
 class QueryResult:
     """Result of a query() call — answer text + citations + optional metrics."""
 
@@ -90,12 +98,16 @@ class RAGSystem:
         max_files: int = 50,
         enable_vectors: bool = True,
         embed_backend: str = "api",
+        use_cache: bool = True,
+        cache_fuzzy: float | None = 0.90,
     ):
         self._storage = Storage(db_path)
         self._chunk_size = default_chunk_size or DEFAULT_CHUNK_SIZE
         self._overlap = default_overlap or DEFAULT_CHUNK_OVERLAP
         self._threshold = search_threshold or DEFAULT_SEARCH_THRESHOLD
         self._max_files = max_files
+        self._use_cache = use_cache
+        self._cache_fuzzy = cache_fuzzy
         self._vector_index = (
             VectorIndex(embed_backend=embed_backend) if enable_vectors else None
         )
@@ -416,6 +428,28 @@ class RAGSystem:
         Returns:
             QueryResult with .answer (str) and .citations (list[dict]).
         """
+        cache_ctx = None
+        if self._use_cache:
+            if question is not None:
+                scope = f"file:{file_id_or_question}"
+                qtext = question
+            elif namespace is not None:
+                scope = f"ns:{namespace}"
+                qtext = str(file_id_or_question)
+            else:
+                scope = "ns:__all__"
+                qtext = str(file_id_or_question)
+            qnorm = _qnorm(qtext)
+            hit = self._storage.cache_lookup(scope, qnorm, self._cache_fuzzy)
+            if hit is not None:
+                metrics = {"cached": True, "cache_hits": hit["hits"]}
+                if "fuzzy_ratio" in hit:
+                    metrics["cache_fuzzy_ratio"] = hit["fuzzy_ratio"]
+                return QueryResult(
+                    answer=hit["answer"], citations=hit["citations"], metrics=metrics
+                )
+            cache_ctx = (scope, qnorm, qtext)
+
         if question is not None:
             # Mode 1: file_id + question
             if toc_first:
@@ -446,6 +480,10 @@ class RAGSystem:
                 llm_config=llm_config,
             )
 
+        if cache_ctx is not None and answer.strip():
+            self._storage.cache_put(
+                cache_ctx[0], cache_ctx[1], cache_ctx[2], answer, citations
+            )
         return QueryResult(answer=answer, citations=citations)
 
     async def aquery(
@@ -462,6 +500,28 @@ class RAGSystem:
         File-ID mode uses the async pipeline (awaitable, non-blocking).
         Namespace/question-only modes fall back to the sync pipeline.
         """
+        cache_ctx = None
+        if self._use_cache:
+            if question is not None:
+                scope = f"file:{file_id_or_question}"
+                qtext = question
+            elif namespace is not None:
+                scope = f"ns:{namespace}"
+                qtext = str(file_id_or_question)
+            else:
+                scope = "ns:__all__"
+                qtext = str(file_id_or_question)
+            qnorm = _qnorm(qtext)
+            hit = self._storage.cache_lookup(scope, qnorm, self._cache_fuzzy)
+            if hit is not None:
+                metrics = {"cached": True, "cache_hits": hit["hits"]}
+                if "fuzzy_ratio" in hit:
+                    metrics["cache_fuzzy_ratio"] = hit["fuzzy_ratio"]
+                return QueryResult(
+                    answer=hit["answer"], citations=hit["citations"], metrics=metrics
+                )
+            cache_ctx = (scope, qnorm, qtext)
+
         if question is not None:
             if toc_first:
                 answer, citations = self._pipeline.query_toc_first(
@@ -489,6 +549,10 @@ class RAGSystem:
                 llm_config=llm_config,
             )
 
+        if cache_ctx is not None and answer.strip():
+            self._storage.cache_put(
+                cache_ctx[0], cache_ctx[1], cache_ctx[2], answer, citations
+            )
         return QueryResult(answer=answer, citations=citations)
 
     def query_agentic(

@@ -1,43 +1,47 @@
 {
   "model": "qwen/qwen3.5-flash-02-23",
+  "price": {
+    "in": 6.5e-08,
+    "out": 2.6e-07
+  },
   "corpus": "sqlite3.txt",
   "results": [
     {
       "system": "rag-kit (terse sync, local)",
-      "build_s": 5.049821138381958,
+      "build_s": 7.006748914718628,
       "rows": [
         {
           "id": "Q1",
           "question": "What is the name of the Python module documented here?",
-          "answer": "The Python module documented here is `sqlite3`. It provides a wrapper for the SQLite database library, allowing users to create connections via `sqlite3.connect` and manage transactions. The module supports extensible type systems through `register_adapter` to adapt custom Python types and `register_converter` to convert SQLite types back to Python objects.",
+          "answer": "The Python module documented here is named `sqlite3`, which provides a DB-API 2.0 interface for SQLite databases. It includes functions such as `register_adapter` to adapt custom Python types and `register_converter` to convert SQLite values, along with connection parameters like `detect_types` for type detection. The module supports various data types including `INTEGER`, `REAL`, `TEXT`, and `BLOB`, and offers transaction control methods via the `Connection` object.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.347945213317871,
-          "prompt_tokens": 1472,
-          "completion_tokens": 66,
-          "cost": 0.00011284000000000001
+          "latency": 1.1185657978057861,
+          "prompt_tokens": 1677,
+          "completion_tokens": 95,
+          "cost": 0.000133705
         },
         {
           "id": "Q2",
           "question": "Which version of the DB-API does the sqlite3 module implement?",
-          "answer": "The `sqlite3` module provides an SQL interface compliant with the DB-API 2.0 specification described by PEP 249. This compliance is a core requirement of the module, which relies on the third-party SQLite library to function.",
+          "answer": "The `sqlite3` module provides an SQL interface compliant with the DB-API 2.0 specification described by PEP 249. This compliance is explicitly stated in the module's documentation, which notes that it requires the third-party SQLite library to function.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.7787699699401855,
-          "prompt_tokens": 1309,
-          "completion_tokens": 50,
-          "cost": 9.808500000000001e-05
+          "latency": 0.8133201599121094,
+          "prompt_tokens": 1514,
+          "completion_tokens": 53,
+          "cost": 0.00011219
         },
         {
           "id": "Q3",
           "question": "SQLite itself is written in what programming language?",
-          "answer": "SQLite is a C library that provides a lightweight disk-based database. The documentation does not specify any other programming language for the SQLite implementation itself, nor does it mention parameters, values, register names, or pin numbers related to its source code language.",
+          "answer": "SQLite is a C library. The documentation does not specify any other programming language for the core SQLite implementation, nor does it mention parameters, values, register names, pin numbers, or settings related to its source code language beyond this description.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.7191686630249023,
-          "prompt_tokens": 1240,
-          "completion_tokens": 49,
-          "cost": 9.334e-05
+          "latency": 0.7907557487487793,
+          "prompt_tokens": 1445,
+          "completion_tokens": 47,
+          "cost": 0.00010614500000000001
         },
         {
           "id": "Q4",
@@ -45,418 +49,561 @@
           "answer": "To create an in-memory database, pass the string `\":memory:\"` as the `database` parameter to `sqlite3.connect()`. Alternatively, you can use a URI scheme with the query string `mode=memory`, such as `\"file:mem1?mode=memory&cache=shared\"`, to create a shared named in-memory database.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.9100770950317383,
-          "prompt_tokens": 1904,
+          "latency": 1.050325632095337,
+          "prompt_tokens": 2109,
           "completion_tokens": 71,
-          "cost": 0.00014222
+          "cost": 0.00015554500000000002
         },
         {
           "id": "Q5",
           "question": "What is the default placeholder style used for parameters in sqlite3?",
-          "answer": "The `sqlite3` module supports two placeholder styles: question marks (qmark style) and named placeholders (named style). For the qmark style, parameters must be a sequence whose length matches the number of placeholders. For the named style, parameters must be an instance of a `dict` containing keys for all named parameters. The documentation does not designate one style as the default; the choice depends on whether the SQL statement uses `?` or named tokens like `:name`.",
+          "answer": "The `sqlite3` module supports two placeholder styles: the **qmark style** using question marks (`?`) and the **named style** using named placeholders (e.g., `:name`). For the qmark style, parameters must be a sequence where the length matches the number of placeholders. For the named style, parameters must be a dictionary containing keys for all named parameters. The documentation does not designate one style as the default; both are valid options used by providing the appropriate parameter type to methods like `execute`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.254079818725586,
-          "prompt_tokens": 1913,
-          "completion_tokens": 97,
-          "cost": 0.000149565
+          "latency": 1.1100847721099854,
+          "prompt_tokens": 2118,
+          "completion_tokens": 105,
+          "cost": 0.00016497000000000001
         },
         {
           "id": "Q6",
           "question": "What prefix or syntax marks named placeholders in SQL statements?",
-          "answer": "Named placeholders in SQL statements are marked using a colon (`:`) prefix. When using this named style, the `parameters` argument provided to the `execute` method must be a dictionary rather than a sequence. If sequences are used instead of dictionaries for named placeholders, a `ProgrammingError` is raised.",
+          "answer": "Named placeholders in SQL statements are marked with a colon (`:`) prefix. When using this style, the `parameters` argument provided to the `execute` method must be a dictionary rather than a sequence. The documentation explicitly notes that numeric placeholders (e.g., `:1`) are not supported and will be interpreted as named placeholders instead.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.872380256652832,
-          "prompt_tokens": 1481,
-          "completion_tokens": 61,
-          "cost": 0.000112125
+          "latency": 1.221971035003662,
+          "prompt_tokens": 1686,
+          "completion_tokens": 68,
+          "cost": 0.00012727
         },
         {
           "id": "Q7",
           "question": "What object does Connection.execute() return?",
-          "answer": "The `Connection.execute()` method returns a :class:`Cursor` object. These shortcut methods create the :class:`Cursor` objects implicitly, allowing the user to execute a ``SELECT`` statement and iterate over it directly using only a single call on the :class:`Connection` object.",
+          "answer": "The `Connection.execute()` method returns a :class:`Cursor` object. According to the documentation, these shortcut methods create the :class:`Cursor` objects implicitly rather than requiring explicit creation, allowing the returned cursor to be used directly for executing statements or iterating over results.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.7597854137420654,
-          "prompt_tokens": 1690,
-          "completion_tokens": 57,
-          "cost": 0.00012467
+          "latency": 1.1506390571594238,
+          "prompt_tokens": 1895,
+          "completion_tokens": 54,
+          "cost": 0.000137215
         },
         {
           "id": "Q8",
           "question": "Which Connection method executes a script containing multiple SQL statements at once?",
-          "answer": "The `executescript` method executes the SQL statements in a provided script. It implicitly commits any pending transaction before execution, regardless of the value of the `isolation_level` attribute. This method is specifically designed to handle multiple SQL statements at once.",
+          "answer": "The `executescript` method executes the SQL statements in a provided script string. If the connection's `autocommit` attribute is set to `LEGACY_TRANSACTION_CONTROL` and a pending transaction exists, this method implicitly executes a `COMMIT` statement before running the script. Additionally, it always commits any pending transaction regardless of the `isolation_level` setting.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.7609391212463379,
-          "prompt_tokens": 1377,
-          "completion_tokens": 51,
-          "cost": 0.00010276500000000001
+          "latency": 1.1903140544891357,
+          "prompt_tokens": 1582,
+          "completion_tokens": 75,
+          "cost": 0.00012233
         },
         {
           "id": "Q9",
           "question": "Which Cursor method executes the same statement repeatedly for a sequence of parameter sets?",
-          "answer": "The `executemany` method executes the same parameterized DML SQL statement repeatedly for every item in the provided *parameters* sequence. It accepts a single SQL DML statement and an iterable of parameter sets, where each set corresponds to one execution of the statement using implicit transaction handling similar to `execute`.",
+          "answer": "The `executemany` method repeatedly executes a parameterized DML SQL statement for every item in the provided *parameters* sequence. It uses the same implicit transaction handling as `execute`, where *parameters* must be an iterable of sequences or dictionaries depending on whether qmark or named placeholders are used in the SQL string.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.0055840015411377,
-          "prompt_tokens": 1558,
-          "completion_tokens": 63,
-          "cost": 0.00011765
+          "latency": 1.1822011470794678,
+          "prompt_tokens": 1763,
+          "completion_tokens": 66,
+          "cost": 0.000131755
         },
         {
           "id": "Q10",
           "question": "What is the base exception class defined by the sqlite3 module?",
-          "answer": "The base exception class defined by the `sqlite3` module is `Error`, which serves as the parent for all other exceptions in the module. According to the DB-API 2.0 specification, `Error` is a subclass of `Exception`. It is used to catch all errors with a single `except` statement, while specific subclasses like `InterfaceError`, `DatabaseError`, and `ProgrammingError` handle more specialized error conditions.",
+          "answer": "The base exception class defined by the `sqlite3` module is `Error`, which serves as the parent for all other exceptions in the module and should be used to catch all errors with a single `except` statement. The `InterfaceError` is a subclass of `Error` raised for misuse of the low-level SQLite C API, while `DatabaseError` is also a subclass of `Error` that acts as the base for specialized database error types like `IntegrityError` and `ProgrammingError`.",
           "correct": false,
           "retr_hit": false,
-          "latency": 1.21651029586792,
-          "prompt_tokens": 1454,
-          "completion_tokens": 88,
-          "cost": 0.00011739
+          "latency": 1.1200878620147705,
+          "prompt_tokens": 1659,
+          "completion_tokens": 101,
+          "cost": 0.000134095
         },
         {
           "id": "Q11",
           "question": "What exception is raised when a database operation fails because the database is locked?",
-          "answer": "The `OperationalError` exception is raised when a database operation fails because the database is locked. This occurs if another connection opens a transaction to modify a table, locking it until the transaction is committed, and the current connection waits longer than the specified `timeout` parameter (defaulting to five seconds) before raising the error.",
+          "answer": "The `sqlite3` module raises an `OperationalError` when a database operation fails because the database is locked. This occurs if another connection holds a transaction that locks a table, and the waiting connection exceeds the duration specified by the `timeout` parameter (defaulting to five seconds) in the `connect()` function.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.9737226963043213,
-          "prompt_tokens": 1416,
-          "completion_tokens": 66,
-          "cost": 0.0001092
+          "latency": 0.8941385746002197,
+          "prompt_tokens": 1621,
+          "completion_tokens": 65,
+          "cost": 0.000122265
         },
         {
           "id": "Q12",
           "question": "Which row factory returns rows that can be accessed by column name?",
-          "answer": "The included :class:`sqlite3.Row` class serves as a row factory that returns rows supporting mapping access by column name and index. Alternatively, a custom callable assigned to the :attr:`~Connection.row_factory` or :attr:`~Cursor.row_factory` attribute can return objects like :class:`dict` or :term:`named tuple`, which also allow access by column name. To use the built-in :class:`!Row`, assign it directly to the :attr:`!row_factory` attribute of the connection.",
+          "answer": "The `sqlite3.Row` class serves as a row factory that returns rows accessible by column name and index, providing case-insensitive named access with minimal memory overhead. Alternatively, a custom callable assigned to the `row_factory` attribute can return a `dict` or a `namedtuple`, where the dictionary maps column names to values and the namedtuple allows access via field names derived from the query's column aliases. To use these factories, assign them to the `Connection.row_factory` attribute so all cursors created from that connection utilize the specified row representation.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.3933250904083252,
-          "prompt_tokens": 1796,
-          "completion_tokens": 103,
-          "cost": 0.00014352
+          "latency": 1.2408154010772705,
+          "prompt_tokens": 2001,
+          "completion_tokens": 111,
+          "cost": 0.000158925
         },
         {
           "id": "Q13",
           "question": "Which Connection attribute reports the total number of rows modified, inserted, or deleted?",
-          "answer": "The `total_changes` attribute reports the total number of database rows that have been modified, inserted, or deleted since the database connection was opened. This read-only attribute is available on the `Connection` object and returns an integer count reflecting all such operations performed on the connection.",
+          "answer": "The `total_changes` attribute of a `Connection` object reports the total number of database rows that have been modified, inserted, or deleted since the database connection was opened. This value is updated by operations such as `INSERT`, `UPDATE`, and `DELETE`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.7848532199859619,
-          "prompt_tokens": 1407,
-          "completion_tokens": 55,
-          "cost": 0.00010575499999999999
+          "latency": 1.0313551425933838,
+          "prompt_tokens": 1612,
+          "completion_tokens": 53,
+          "cost": 0.00011856
         },
         {
           "id": "Q14",
           "question": "Which sqlite3 module function registers a callable that adapts a Python object to an SQLite value?",
-          "answer": "The `register_adapter` function registers a callable to adapt a Python type into an SQLite value. It takes two arguments: the Python *type* and an *adapter* callable. The adapter is invoked with a Python object of the specified type as its sole argument and must return a value of a type that SQLite natively understands.",
+          "answer": "The `register_adapter` function registers a callable to adapt a specific Python type into an SQLite-compatible type. It takes two arguments: the Python `type` to be adapted and an `adapter` callable that accepts a Python object of that type as its sole argument and must return a value SQLite natively understands. This registered adapter is invoked when such objects are used in SQL queries, taking precedence over any `__conform__` method defined on the object itself.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.9118380546569824,
-          "prompt_tokens": 1631,
-          "completion_tokens": 66,
-          "cost": 0.000123175
+          "latency": 1.1185858249664307,
+          "prompt_tokens": 1836,
+          "completion_tokens": 93,
+          "cost": 0.00014352
         },
         {
           "id": "Q15",
           "question": "Which sqlite3 module function registers a callable that converts SQLite values into custom Python types?",
-          "answer": "The function `register_converter` registers a callable to convert SQLite objects of a specific type into a custom Python object. It takes two arguments: `typename`, which specifies the SQLite type name, and `converter`, which is the callable invoked for all values of that type. The converter receives a `bytes` object as its sole argument and must return an object of the desired Python type.",
+          "answer": "The function `register_converter` registers a callable to convert SQLite objects of a specific type into a custom Python object. It takes two arguments: `typename`, which specifies the SQLite type name, and `converter`, a callable that receives a `bytes` object and must return an object of the desired Python type. This converter is invoked for all SQLite values matching the specified `typename`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.0474960803985596,
-          "prompt_tokens": 1907,
-          "completion_tokens": 77,
-          "cost": 0.00014397500000000002
+          "latency": 1.479797601699829,
+          "prompt_tokens": 2112,
+          "completion_tokens": 76,
+          "cost": 0.00015704
         },
         {
           "id": "Q16",
           "question": "Which parameter of sqlite3.connect() enables detection of declared column types?",
-          "answer": "The `detect_types` parameter of `sqlite3.connect()` enables the detection of declared column types. To use this feature, you must pass the value `PARSE_DECLTYPES` to the `detect_types` argument. When configured this way, the module looks up a converter function using the first word of the declared type as the dictionary key.",
+          "answer": "The `detect_types` parameter of the `sqlite3.connect()` function enables the detection of declared column types. To use this feature, you must pass the value `PARSE_DECLTYPES` to the `detect_types` argument. When enabled, the module looks up a converter function using the first word of the declared type in the table schema as the dictionary key.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.1761970520019531,
-          "prompt_tokens": 1667,
-          "completion_tokens": 68,
-          "cost": 0.000126035
+          "latency": 1.2356581687927246,
+          "prompt_tokens": 1872,
+          "completion_tokens": 72,
+          "cost": 0.0001404
         },
         {
           "id": "Q17",
           "question": "Which Connection attribute controls whether the connection may be used from other threads?",
-          "answer": "The `check_same_thread` parameter controls whether the connection may be used from other threads. If set to `True` (the default), a `ProgrammingError` is raised if the database connection is accessed by a thread other than the one that created it. If set to `False`, the connection may be accessed in multiple threads, though write operations may need to be serialized by the user to avoid data corruption.",
+          "answer": "The `check_same_thread` parameter controls whether the connection may be used from other threads. If set to `True` (the default), a `ProgrammingError` is raised if the database connection is accessed by a thread other than the one that created it. Setting this parameter to `False` allows the connection to be accessed in multiple threads, though write operations may need to be serialized by the user to avoid data corruption.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.9499936103820801,
-          "prompt_tokens": 1475,
-          "completion_tokens": 83,
-          "cost": 0.000117455
+          "latency": 1.1834793090820312,
+          "prompt_tokens": 1680,
+          "completion_tokens": 85,
+          "cost": 0.0001313
         },
         {
           "id": "Q18",
           "question": "What language construct does the documentation recommend for managing connections and transactions?",
-          "answer": "The documentation recommends using the `with` statement as a context manager to manage connections and transactions. When the body of the `with` statement finishes without exceptions, the transaction is automatically committed; if an exception occurs, `con.rollback()` is called. This behavior applies when `Connection.autocommit` is `False`, whereas if `autocommit` is `True` or no transaction is open, the context manager does nothing.",
+          "answer": "The documentation recommends using the `with` statement (context manager) to manage connections and transactions, as it automatically commits the transaction if the block finishes without exceptions or rolls back if an exception occurs. This behavior relies on the `Connection.autocommit` attribute; if set to `False`, a new transaction is implicitly opened after committing or rolling back, whereas setting it to `True` or using `LEGACY_TRANSACTION_CONTROL` disables implicit transaction control. Additionally, the `isolation_level` parameter can be configured with values like `\"DEFERRED\"`, `\"IMMEDIATE\"`, or `\"EXCLUSIVE\"` to control underlying SQLite transaction behavior when autocommit is not enabled.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.2960402965545654,
-          "prompt_tokens": 1620,
-          "completion_tokens": 87,
-          "cost": 0.00012792
+          "latency": 1.5867555141448975,
+          "prompt_tokens": 1825,
+          "completion_tokens": 136,
+          "cost": 0.00015398499999999998
         },
         {
           "id": "Q19",
           "question": "Which Cursor attribute holds the row id of the last inserted row?",
-          "answer": "The `lastrowid` attribute holds the row id of the last inserted row. It is a read-only attribute that is only updated after successful `INSERT` or `REPLACE` statements using the `execute` method.",
+          "answer": "The `lastrowid` attribute holds the row id of the last inserted row. It is a read-only attribute that is only updated after successful `INSERT` or `REPLACE` statements using the `execute` method. This attribute is also set for `SELECT` statements without any matching rows.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.9163525104522705,
-          "prompt_tokens": 1577,
-          "completion_tokens": 45,
-          "cost": 0.000114205
+          "latency": 1.0089592933654785,
+          "prompt_tokens": 1782,
+          "completion_tokens": 60,
+          "cost": 0.00013142999999999998
         },
         {
           "id": "Q20",
           "question": "Which Connection attribute controls autocommit behavior?",
-          "answer": "The `autocommit` attribute controls autocommit behavior. When set to `True`, the connection operates in autocommit mode; when set to `False`, it uses legacy transaction control. The default value is `LEGACY_TRANSACTION_CONTROL`, which will change to `False` in a future Python release.",
+          "answer": "The `autocommit` attribute controls the transaction handling behavior of a connection. When set to `True`, autocommit mode is enabled; when set to `False`, legacy transaction control applies unless the `isolation_level` is explicitly configured. The default value for this parameter is `LEGACY_TRANSACTION_CONTROL`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.8099637031555176,
-          "prompt_tokens": 1403,
+          "latency": 0.9356791973114014,
+          "prompt_tokens": 1608,
           "completion_tokens": 63,
-          "cost": 0.000107575
+          "cost": 0.0001209
+        }
+      ],
+      "repeat_rows": [
+        {
+          "id": "Q1",
+          "latency": 0.0050809383392333984,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q2",
+          "latency": 0.00432133674621582,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q3",
+          "latency": 0.004694223403930664,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q4",
+          "latency": 0.005906343460083008,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q5",
+          "latency": 0.004209041595458984,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q6",
+          "latency": 0.008196592330932617,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q7",
+          "latency": 0.007073879241943359,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q8",
+          "latency": 0.005525350570678711,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q9",
+          "latency": 0.0049436092376708984,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q10",
+          "latency": 0.005092620849609375,
+          "cached": true,
+          "hits": 2,
+          "correct": false
+        },
+        {
+          "id": "Q11",
+          "latency": 0.009397268295288086,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q12",
+          "latency": 0.006498813629150391,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q13",
+          "latency": 0.005020856857299805,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q14",
+          "latency": 0.007290840148925781,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q15",
+          "latency": 0.0052623748779296875,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q16",
+          "latency": 0.0059223175048828125,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q17",
+          "latency": 0.004865407943725586,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q18",
+          "latency": 0.0036950111389160156,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q19",
+          "latency": 0.003816843032836914,
+          "cached": true,
+          "hits": 2,
+          "correct": true
+        },
+        {
+          "id": "Q20",
+          "latency": 0.006211519241333008,
+          "cached": true,
+          "hits": 2,
+          "correct": true
         }
       ]
     },
     {
       "system": "rag-kit (terse async, local)",
-      "build_s": 4.655101537704468,
+      "build_s": 4.603622913360596,
       "rows": [
         {
           "id": "Q1",
           "question": "What is the name of the Python module documented here?",
-          "answer": "The Python module documented here is `sqlite3`. It provides a wrapper for the SQLite database library, allowing users to create connections via `sqlite3.connect` and manage transactions. The module supports extensible type systems through `register_adapter` to adapt custom Python types and `register_converter` to convert SQLite types back to Python objects.",
+          "answer": "The Python module documented here is named `sqlite3`, which provides a DB-API 2.0 interface for SQLite databases. It includes functions such as `register_adapter` and `register_converter` to manage type adaptation, and supports connection parameters like `detect_types` for type detection. The module also defines specific data type mappings, such as converting SQLite `INTEGER` to the Python `int` class and `BLOB` to the `bytes` class.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.996945858001709,
-          "prompt_tokens": 1472,
-          "completion_tokens": 66,
-          "cost": 0.00011284000000000001
+          "latency": 1.6129169464111328,
+          "prompt_tokens": 1677,
+          "completion_tokens": 92,
+          "cost": 0.000132925
         },
         {
           "id": "Q2",
           "question": "Which version of the DB-API does the sqlite3 module implement?",
-          "answer": "The `sqlite3` module provides an SQL interface compliant with the DB-API 2.0 specification described by PEP 249. This compliance is a core requirement of the module, which relies on the third-party SQLite library to function.",
+          "answer": "The `sqlite3` module provides an SQL interface compliant with the DB-API 2.0 specification described by PEP 249. This compliance is explicitly stated in the module's documentation, which notes that it requires the third-party SQLite library to function.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.7726044654846191,
-          "prompt_tokens": 1309,
-          "completion_tokens": 50,
-          "cost": 9.808500000000001e-05
+          "latency": 0.8250846862792969,
+          "prompt_tokens": 1514,
+          "completion_tokens": 53,
+          "cost": 0.00011219
         },
         {
           "id": "Q3",
           "question": "SQLite itself is written in what programming language?",
-          "answer": "SQLite is a C library that provides a lightweight disk-based database. The documentation does not specify any other programming language for the core SQLite implementation, nor does it mention specific parameters, register names, or pin numbers related to its source code language.",
+          "answer": "SQLite is a C library. The documentation does not specify any other programming language for the core SQLite implementation, nor does it mention parameters, register names, or pin numbers related to its source code language.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.9779767990112305,
-          "prompt_tokens": 1240,
-          "completion_tokens": 48,
-          "cost": 9.308e-05
+          "latency": 0.7271707057952881,
+          "prompt_tokens": 1445,
+          "completion_tokens": 40,
+          "cost": 0.000104325
         },
         {
           "id": "Q4",
           "question": "What special string do you pass to sqlite3.connect() to create an in-memory database?",
-          "answer": "To create an in-memory database, pass the string `\":memory:\"` as the `database` parameter to `sqlite3.connect()`. Alternatively, you can use a URI scheme with the query string `mode=memory`, such as `\"file:mem1?mode=memory&cache=shared\"`, to create a shared named in-memory database.",
+          "answer": "To create an in-memory database, you pass the string `\":memory:\"` as the `database` parameter to `sqlite3.connect()`. Alternatively, for a shared named in-memory database, you can use a URI string starting with `\"file:mem1?mode=memory&cache=shared\"` where the scheme is `\"file:\"` and the query string includes `mode=memory` and `cache=shared`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.0677390098571777,
-          "prompt_tokens": 1904,
-          "completion_tokens": 71,
-          "cost": 0.00014222
+          "latency": 1.0780730247497559,
+          "prompt_tokens": 2109,
+          "completion_tokens": 85,
+          "cost": 0.000159185
         },
         {
           "id": "Q5",
           "question": "What is the default placeholder style used for parameters in sqlite3?",
-          "answer": "The `sqlite3` module supports two placeholder styles: the **qmark style** using question marks (`?`) and the **named style** using named placeholders (e.g., `:name`). For the qmark style, parameters must be a sequence whose length matches the number of placeholders. For the named style, parameters must be an instance of a `dict` containing keys for all named parameters; if named placeholders are used with a sequence instead of a dictionary, a `ProgrammingError` is raised. The documentation does not designate one style as the default over the other; the choice depends on the specific query implementation.",
+          "answer": "The `sqlite3` module supports two placeholder styles: the **qmark style**, which uses question marks (`?`) and requires parameters to be a sequence (such as a tuple), and the **named style**, which uses named placeholders (e.g., `:name`) and requires parameters to be a dictionary. The documentation does not designate one style as the default; instead, it states that the choice depends on the specific query implementation, noting that numeric placeholders are not supported and will be interpreted as named placeholders.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.5054681301116943,
-          "prompt_tokens": 1913,
-          "completion_tokens": 125,
-          "cost": 0.000156845
+          "latency": 1.545825481414795,
+          "prompt_tokens": 2118,
+          "completion_tokens": 103,
+          "cost": 0.00016445
         },
         {
           "id": "Q6",
           "question": "What prefix or syntax marks named placeholders in SQL statements?",
-          "answer": "Named placeholders in SQL statements are marked using a colon (`:`) prefix. When using this named style, the `parameters` argument provided to the `execute` method must be a `dict` containing the parameter names and their corresponding values, rather than a sequence or tuple.",
+          "answer": "Named placeholders in SQL statements are marked with a colon (`:`) prefix. When using this named style, the `parameters` argument provided to the `execute` method must be a dictionary rather than a sequence. The documentation explicitly notes that numeric placeholders (e.g., `:1`) are not supported and will be interpreted as named placeholders instead.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.1591594219207764,
-          "prompt_tokens": 1481,
-          "completion_tokens": 55,
-          "cost": 0.000110565
+          "latency": 2.127182722091675,
+          "prompt_tokens": 1686,
+          "completion_tokens": 69,
+          "cost": 0.00012753
         },
         {
           "id": "Q7",
           "question": "What object does Connection.execute() return?",
-          "answer": "The `Connection.execute()` method returns a :class:`Cursor` object. These shortcut methods create the :class:`Cursor` objects implicitly, allowing the user to execute a ``SELECT`` statement and iterate over it directly using only a single call on the :class:`Connection` object.",
+          "answer": "The `Connection.execute()` method returns a :class:`Cursor` object. According to the documentation, these shortcut methods create the :class:`Cursor` objects implicitly rather than requiring explicit creation, allowing the returned cursor to be used directly for executing statements or iterating over results.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.0465977191925049,
-          "prompt_tokens": 1690,
-          "completion_tokens": 57,
-          "cost": 0.00012467
+          "latency": 3.275966167449951,
+          "prompt_tokens": 1895,
+          "completion_tokens": 54,
+          "cost": 0.000137215
         },
         {
           "id": "Q8",
           "question": "Which Connection method executes a script containing multiple SQL statements at once?",
-          "answer": "The `executescript` method executes the SQL statements in a provided script. It implicitly commits any pending transaction before execution, regardless of the value of the `isolation_level` attribute. If the `autocommit` attribute is set to `LEGACY_TRANSACTION_CONTROL` and there is a pending transaction, an implicit `COMMIT` statement is executed first.",
+          "answer": "The `executescript` method executes the SQL statements in a provided script containing multiple SQL statements at once. It accepts a single parameter named `sql_script`. If the connection's `autocommit` attribute is set to `LEGACY_TRANSACTION_CONTROL` and there is a pending transaction, this method implicitly executes a `COMMIT` statement before running the script. Additionally, it always commits any pending transaction regardless of the `isolation_level` setting.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.147524118423462,
-          "prompt_tokens": 1377,
-          "completion_tokens": 73,
-          "cost": 0.000108485
+          "latency": 1.0693809986114502,
+          "prompt_tokens": 1582,
+          "completion_tokens": 91,
+          "cost": 0.00012649
         },
         {
           "id": "Q9",
           "question": "Which Cursor method executes the same statement repeatedly for a sequence of parameter sets?",
-          "answer": "The `executemany` method executes the same parameterized DML SQL statement repeatedly for every item in the provided *parameters* sequence. This method accepts a single SQL statement and an iterable of parameter sets, where each set corresponds to one execution of the statement. It utilizes the same implicit transaction handling as the `execute` method.",
+          "answer": "The `executemany` method repeatedly executes a parameterized DML SQL statement for every item in the provided *parameters* sequence. It uses the same implicit transaction handling as `execute`, where *parameters* must be an iterable of sequences or dictionaries depending on whether qmark or named placeholders are used. If named placeholders are used, *parameters* must contain items that are instances of `dict`; otherwise, a `ProgrammingError` is raised.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.093871831893921,
-          "prompt_tokens": 1558,
-          "completion_tokens": 68,
-          "cost": 0.00011894999999999999
+          "latency": 1.5788493156433105,
+          "prompt_tokens": 1763,
+          "completion_tokens": 91,
+          "cost": 0.000138255
         },
         {
           "id": "Q10",
           "question": "What is the base exception class defined by the sqlite3 module?",
-          "answer": "The base exception class defined by the `sqlite3` module is `Error`, which serves as the parent for all other exceptions in the module and can be used to catch all errors with a single `except` statement. The `Warning` exception, a subclass of `Exception`, is also defined but is not currently raised by the module itself. Other specific exceptions like `InterfaceError`, `DatabaseError`, `IntegrityError`, `ProgrammingError`, and `NotSupportedError` are subclasses of either `Error` or `DatabaseError`.",
+          "answer": "The base exception class defined by the `sqlite3` module is `Error`, which serves as the parent for all other exceptions in the module and should be used to catch all errors with a single `except` statement. The `InterfaceError` is a subclass of `Error` raised for misuse of the low-level SQLite C API, while `DatabaseError` is also a subclass of `Error` that acts as the base for several types of database-specific errors.",
           "correct": false,
           "retr_hit": false,
-          "latency": 1.3884789943695068,
-          "prompt_tokens": 1454,
-          "completion_tokens": 108,
-          "cost": 0.00012259
+          "latency": 1.0184705257415771,
+          "prompt_tokens": 1659,
+          "completion_tokens": 93,
+          "cost": 0.000132015
         },
         {
           "id": "Q11",
           "question": "What exception is raised when a database operation fails because the database is locked?",
-          "answer": "The `OperationalError` exception is raised when a database operation fails because the database is locked. This occurs if another connection opens a transaction to modify a table, locking it until the transaction is committed, and the current connection waits longer than the specified `timeout` parameter (defaulting to five seconds) before raising the error.",
+          "answer": "The `sqlite3` module raises an `OperationalError` when a database operation fails because the database is locked. This occurs if another connection holds a transaction that locks a table, and the waiting connection exceeds the duration specified by the `timeout` parameter (defaulting to five seconds) in the `connect()` function.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.2266321182250977,
-          "prompt_tokens": 1416,
-          "completion_tokens": 66,
-          "cost": 0.0001092
+          "latency": 3.7038345336914062,
+          "prompt_tokens": 1621,
+          "completion_tokens": 65,
+          "cost": 0.000122265
         },
         {
           "id": "Q12",
           "question": "Which row factory returns rows that can be accessed by column name?",
-          "answer": "The `sqlite3.Row` class serves as a row factory that returns rows supporting mapping access by column name and index. Alternatively, a custom callable assigned to the `row_factory` attribute can return a `dict` or a `namedtuple`, both of which allow access via column names. To use `sqlite3.Row`, assign it directly to the `Connection.row_factory` attribute.",
+          "answer": "The `sqlite3.Row` class serves as a row factory that returns rows accessible by column name and index, providing case-insensitive named access with minimal memory overhead. Alternatively, a custom callable assigned to the `row_factory` attribute can return a `dict` or a `namedtuple`, allowing access via column names mapped to values. To use these factories, assign them to the `Connection.row_factory` attribute so all cursors created from that connection utilize the specified row representation.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.2124779224395752,
-          "prompt_tokens": 1796,
-          "completion_tokens": 77,
-          "cost": 0.00013675999999999998
+          "latency": 1.1938295364379883,
+          "prompt_tokens": 2001,
+          "completion_tokens": 96,
+          "cost": 0.00015502500000000001
         },
         {
           "id": "Q13",
           "question": "Which Connection attribute reports the total number of rows modified, inserted, or deleted?",
-          "answer": "The `total_changes` attribute reports the total number of database rows that have been modified, inserted, or deleted since the database connection was opened. This read-only attribute is available on the `Connection` object and returns an integer count reflecting all such operations performed after the connection was established.",
+          "answer": "The `total_changes` attribute of a `Connection` object reports the total number of database rows that have been modified, inserted, or deleted since the database connection was opened. This attribute is read-only and returns an integer count reflecting all such operations performed on the connection.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.7603590488433838,
-          "prompt_tokens": 1407,
-          "completion_tokens": 57,
-          "cost": 0.000106275
+          "latency": 0.9819116592407227,
+          "prompt_tokens": 1612,
+          "completion_tokens": 54,
+          "cost": 0.00011881999999999999
         },
         {
           "id": "Q14",
           "question": "Which sqlite3 module function registers a callable that adapts a Python object to an SQLite value?",
-          "answer": "The `sqlite3.register_adapter` function registers a callable to adapt a Python type into an SQLite value. It takes two arguments: the Python `type` to be adapted and an `adapter` callable. The adapter is invoked with a Python object of that specific type as its sole argument and must return a value of a type that SQLite natively understands.",
+          "answer": "The `register_adapter` function registers a callable to adapt a Python type into an SQLite type. It takes two arguments: the Python *type* and an *adapter* callable. The adapter is invoked with a Python object of the specified type as its sole argument and must return a value of a type that SQLite natively understands.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.568509817123413,
-          "prompt_tokens": 1631,
-          "completion_tokens": 71,
-          "cost": 0.000124475
+          "latency": 0.9536137580871582,
+          "prompt_tokens": 1836,
+          "completion_tokens": 66,
+          "cost": 0.0001365
         },
         {
           "id": "Q15",
           "question": "Which sqlite3 module function registers a callable that converts SQLite values into custom Python types?",
-          "answer": "The function `register_converter` registers a callable to convert SQLite objects of a specific type name into a custom Python object. It takes two arguments: `typename`, which specifies the SQLite type, and `converter`, a callable that receives a `bytes` object and must return an object of the desired Python type. This converter is invoked for all SQLite values matching the specified `typename`.",
+          "answer": "The function is `register_converter`, which registers a callable to convert SQLite objects of a specific type name into a Python object. It takes two arguments: `typename`, the name of the SQLite type, and `converter`, a callable that receives a `bytes` object and must return an object of the desired Python type. This converter is invoked for all SQLite values matching the specified `typename`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 2.2199509143829346,
-          "prompt_tokens": 1907,
-          "completion_tokens": 76,
-          "cost": 0.000143715
+          "latency": 1.5175347328186035,
+          "prompt_tokens": 2112,
+          "completion_tokens": 78,
+          "cost": 0.00015755999999999998
         },
         {
           "id": "Q16",
           "question": "Which parameter of sqlite3.connect() enables detection of declared column types?",
-          "answer": "The `detect_types` parameter of `sqlite3.connect()` enables the detection of declared column types. To use this feature, you must pass the flag value `PARSE_DECLTYPES` to the `detect_types` parameter. When enabled, the module looks up a converter function using the first word of the declared type as the dictionary key.",
+          "answer": "The `detect_types` parameter of `sqlite3.connect()` enables the detection of declared column types. To use this feature, you must pass the value `PARSE_DECLTYPES` to the `detect_types` argument. When enabled, the module looks up a converter function using the first word of the declared type in the table schema as the dictionary key.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.6140246391296387,
-          "prompt_tokens": 1667,
-          "completion_tokens": 67,
-          "cost": 0.000125775
+          "latency": 1.205183982849121,
+          "prompt_tokens": 1872,
+          "completion_tokens": 70,
+          "cost": 0.00013988
         },
         {
           "id": "Q17",
           "question": "Which Connection attribute controls whether the connection may be used from other threads?",
-          "answer": "The `check_same_thread` parameter controls whether the connection may be used from other threads. If set to `True` (the default), a `ProgrammingError` is raised if the database connection is accessed by a thread other than the one that created it. If set to `False`, the connection may be accessed in multiple threads, though write operations may need to be serialized by the user to avoid data corruption.",
+          "answer": "The `check_same_thread` parameter controls whether the connection may be used from other threads. If set to `True` (the default), a `ProgrammingError` is raised if the database connection is accessed by a thread other than the one that created it. Setting this parameter to `False` allows the connection to be accessed in multiple threads, though write operations may need to be serialized by the user to avoid data corruption.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.062803030014038,
-          "prompt_tokens": 1475,
-          "completion_tokens": 83,
-          "cost": 0.000117455
+          "latency": 1.32517671585083,
+          "prompt_tokens": 1680,
+          "completion_tokens": 85,
+          "cost": 0.0001313
         },
         {
           "id": "Q18",
           "question": "What language construct does the documentation recommend for managing connections and transactions?",
-          "answer": "The documentation recommends using the `with` statement as a context manager to manage connections and transactions. When the body of the `with` statement finishes without exceptions, the transaction is automatically committed; if an exception occurs, `con.rollback()` is called. This behavior relies on the `Connection.autocommit` attribute being set to `False`, which allows new transactions to be implicitly opened after committing or rolling back.",
+          "answer": "The documentation recommends using the `with` statement as a context manager to manage connections and transactions. When the body of the `with` statement finishes without exceptions, the transaction is automatically committed; if an exception occurs, `con.rollback()` is called. This behavior relies on the `Connection.autocommit` attribute being set to `False`, which allows the context manager to implicitly open new transactions after committing or rolling back.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.9990806579589844,
-          "prompt_tokens": 1620,
-          "completion_tokens": 82,
-          "cost": 0.00012662
+          "latency": 1.1906511783599854,
+          "prompt_tokens": 1825,
+          "completion_tokens": 84,
+          "cost": 0.000140465
         },
         {
           "id": "Q19",
           "question": "Which Cursor attribute holds the row id of the last inserted row?",
-          "answer": "The `lastrowid` attribute holds the row id of the last inserted row. This read-only attribute is only updated after successful `INSERT` or `REPLACE` statements executed using the `execute` method. It is also set for `SELECT` statements without any matching rows.",
+          "answer": "The `lastrowid` attribute holds the row id of the last inserted row. It is a read-only attribute that is only updated after successful `INSERT` or `REPLACE` statements using the `execute` method. This attribute is also set for `SELECT` statements without any matching rows.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.9752118587493896,
-          "prompt_tokens": 1577,
-          "completion_tokens": 57,
-          "cost": 0.00011732499999999999
+          "latency": 1.4034743309020996,
+          "prompt_tokens": 1782,
+          "completion_tokens": 60,
+          "cost": 0.00013142999999999998
         },
         {
           "id": "Q20",
           "question": "Which Connection attribute controls autocommit behavior?",
-          "answer": "The `autocommit` attribute controls the transaction handling behavior. When set to `True`, autocommit mode is enabled; when set to `False`, explicit transaction control is used. The default value is `LEGACY_TRANSACTION_CONTROL`, which will change to `False` in a future Python release.",
+          "answer": "The `autocommit` attribute controls the transaction handling behavior of a connection. When set to `True`, autocommit mode is enabled; when set to `False`, legacy transaction control applies unless `isolation_level` is `None`. The default value for this parameter in the `connect` function is `LEGACY_TRANSACTION_CONTROL`, which will change to `False` in a future Python release.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.86454176902771,
-          "prompt_tokens": 1403,
-          "completion_tokens": 61,
-          "cost": 0.000107055
+          "latency": 1.1684443950653076,
+          "prompt_tokens": 1608,
+          "completion_tokens": 81,
+          "cost": 0.00012558
         }
-      ]
+      ],
+      "repeat_rows": null
     },
     {
       "system": "LlamaIndex (k=2)",
-      "build_s": 1.3635542392730713,
+      "build_s": 1.3244822025299072,
       "rows": [
         {
           "id": "Q1",
@@ -464,7 +611,7 @@
           "answer": "The Python module documented here is `sqlite3`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.1272070407867432,
+          "latency": 1.116102933883667,
           "prompt_tokens": 1941,
           "completion_tokens": 10,
           "cost": 0.000128765
@@ -475,7 +622,7 @@
           "answer": "The :mod:`!sqlite3` module provides an SQL interface compliant with the DB-API 2.0 specification described by PEP 249.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.8271079063415527,
+          "latency": 1.0313806533813477,
           "prompt_tokens": 2199,
           "completion_tokens": 32,
           "cost": 0.000151255
@@ -486,7 +633,7 @@
           "answer": "SQLite is a C library.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.4657552242279053,
+          "latency": 0.6118242740631104,
           "prompt_tokens": 2216,
           "completion_tokens": 6,
           "cost": 0.00014560000000000002
@@ -494,24 +641,24 @@
         {
           "id": "Q4",
           "question": "What special string do you pass to sqlite3.connect() to create an in-memory database?",
-          "answer": "To create an SQLite database that exists only in memory, you pass the special string `\":memory:\"` to the `sqlite3.connect()` function.",
+          "answer": "You pass the special string `\":memory:\"` to `sqlite3.connect()` to create an SQLite database that exists only in memory.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.5627448558807373,
+          "latency": 0.7582097053527832,
           "prompt_tokens": 2225,
-          "completion_tokens": 30,
-          "cost": 0.000152425
+          "completion_tokens": 27,
+          "cost": 0.000151645
         },
         {
           "id": "Q5",
           "question": "What is the default placeholder style used for parameters in sqlite3?",
-          "answer": "The provided context does not specify a single default placeholder style for parameters in `sqlite3`. It states that an SQL statement may use one of two kinds of placeholders: question marks (qmark style) or named placeholders (named style).\n\n- For the **qmark style**, parameters must be a sequence whose length matches the number of placeholders.\n- For the **named style**, parameters must be an instance of a dictionary containing keys for all named parameters.\n\nThe text provides examples of both styles but does not indicate which one is used by default if none is specified.",
+          "answer": "The provided context does not specify a single default placeholder style for parameters in `sqlite3`. It states that an SQL statement may use one of two kinds of placeholders: question marks (qmark style) or named placeholders (named style).\n\n*   For the **qmark style**, parameters must be a sequence whose length matches the number of placeholders.\n*   For the **named style**, parameters must be an instance of a dict containing keys for all named parameters.\n\nThe text provides examples of both styles being used but does not designate one as the default over the other.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.2476890087127686,
+          "latency": 1.395430326461792,
           "prompt_tokens": 2305,
-          "completion_tokens": 115,
-          "cost": 0.000179725
+          "completion_tokens": 116,
+          "cost": 0.000179985
         },
         {
           "id": "Q6",
@@ -519,7 +666,7 @@
           "answer": "Named placeholders in SQL statements are marked using a colon followed by the parameter name (e.g., `:name`). This style requires the parameters to be provided as a dictionary containing keys for all named parameters.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.8034718036651611,
+          "latency": 0.9299113750457764,
           "prompt_tokens": 2303,
           "completion_tokens": 41,
           "cost": 0.00016035500000000002
@@ -527,35 +674,35 @@
         {
           "id": "Q7",
           "question": "What object does Connection.execute() return?",
-          "answer": "The provided context does not specify what object `Connection.execute()` returns. It only details that a `Cursor` object is created using `Connection.cursor` or connection shortcut methods, and describes the `execute` method of the `Cursor` class.",
+          "answer": "The provided context does not specify what object `Connection.execute()` returns. It only details that a `Cursor` object is created using `Connection.cursor` or connection shortcut methods, and describes the attributes and methods of the `Cursor` class, including its `execute` method.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.6868233680725098,
+          "latency": 0.8069412708282471,
           "prompt_tokens": 1986,
-          "completion_tokens": 49,
-          "cost": 0.00014183
+          "completion_tokens": 55,
+          "cost": 0.00014339
         },
         {
           "id": "Q8",
           "question": "Which Connection method executes a script containing multiple SQL statements at once?",
-          "answer": "Based on the provided context information, there is no mention of a specific `Connection` method designed to execute a script containing multiple SQL statements at once. The text describes methods such as `execute()` for running single SQL statements and mentions that the `connect()` function opens a connection to an SQLite database, but it does not describe a method for executing multi-statement scripts.",
+          "answer": "Based on the provided context information, there is no mention of a specific `Connection` method designed to execute a script containing multiple SQL statements at once. The text describes methods such as `execute()` for running single SQL statements and mentions using the connection object as a context manager to handle transactions (committing or rolling back), but it does not describe a method for executing multi-statement scripts.",
           "correct": false,
           "retr_hit": false,
-          "latency": 3.4793202877044678,
+          "latency": 0.8241338729858398,
           "prompt_tokens": 2027,
-          "completion_tokens": 74,
-          "cost": 0.00015099500000000001
+          "completion_tokens": 78,
+          "cost": 0.000152035
         },
         {
           "id": "Q9",
           "question": "Which Cursor method executes the same statement repeatedly for a sequence of parameter sets?",
-          "answer": "The `executemany` method executes the same parameterized SQL statement repeatedly for every item in a provided sequence of parameters.",
+          "answer": "The `executemany` method executes the same parameterized SQL statement repeatedly for every item in a provided sequence of parameters. It is designed to run Data Manipulation Language (DML) statements multiple times with different parameter sets, discarding any resulting rows.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.4754183292388916,
+          "latency": 1.0330750942230225,
           "prompt_tokens": 2160,
-          "completion_tokens": 26,
-          "cost": 0.00014716
+          "completion_tokens": 53,
+          "cost": 0.00015418
         },
         {
           "id": "Q10",
@@ -563,7 +710,7 @@
           "answer": "The base exception class defined by the `sqlite3` module is `Error`. It serves as the parent class for all other exceptions in the module and is itself a subclass of `Exception`.",
           "correct": false,
           "retr_hit": false,
-          "latency": 0.8183770179748535,
+          "latency": 1.0980074405670166,
           "prompt_tokens": 2092,
           "completion_tokens": 38,
           "cost": 0.00014586000000000002
@@ -574,7 +721,7 @@
           "answer": "The `OperationalError` exception is raised for errors related to the database's operation, such as when a transaction could not be processed.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.8216800689697266,
+          "latency": 0.4913444519042969,
           "prompt_tokens": 1901,
           "completion_tokens": 28,
           "cost": 0.00013084499999999998
@@ -582,13 +729,13 @@
         {
           "id": "Q12",
           "question": "Which row factory returns rows that can be accessed by column name?",
-          "answer": "The `sqlite3.Row` class serves as a row factory that returns rows with case-insensitive named access to columns. Additionally, custom row factories can be created to return rows as dictionaries or named tuples, both of which allow access by column name. For instance, a dictionary-based factory maps column names directly to values, while a named tuple factory enables attribute-style access using column names.",
+          "answer": "The `sqlite3.Row` class serves as a row factory that allows rows to be accessed by column name. It provides case-insensitive named access to columns in addition to indexed access.\n\nAdditionally, custom row factories can be created to return rows as dictionaries or named tuples, both of which also support access by column name:\n- A dictionary-based factory maps column names directly to values.\n- A named tuple factory creates a class where fields are accessible via attribute names corresponding to column names.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.0138177871704102,
+          "latency": 1.4127352237701416,
           "prompt_tokens": 1555,
-          "completion_tokens": 77,
-          "cost": 0.000121095
+          "completion_tokens": 99,
+          "cost": 0.000126815
         },
         {
           "id": "Q13",
@@ -596,7 +743,7 @@
           "answer": "The `rowcount` attribute reports the number of modified rows for `INSERT`, `UPDATE`, `DELETE`, and `REPLACE` statements. It is a read-only attribute that returns `-1` for other statements, such as Common Table Expression (CTE) queries. This value is only updated after the statement has run to completion via the `execute` or `executemany` methods.",
           "correct": false,
           "retr_hit": false,
-          "latency": 0.8507020473480225,
+          "latency": 0.8269104957580566,
           "prompt_tokens": 1511,
           "completion_tokens": 81,
           "cost": 0.00011927499999999999
@@ -607,7 +754,7 @@
           "answer": "The function that registers a callable to adapt a Python object to an SQLite-compatible type is `register_adapter`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.7897789478302002,
+          "latency": 0.5262300968170166,
           "prompt_tokens": 2069,
           "completion_tokens": 21,
           "cost": 0.000139945
@@ -618,7 +765,7 @@
           "answer": "The function that registers a callable to convert SQLite values into custom Python types is `register_converter`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.40845370292663574,
+          "latency": 0.44217371940612793,
           "prompt_tokens": 1811,
           "completion_tokens": 19,
           "cost": 0.000122655
@@ -629,7 +776,7 @@
           "answer": "The `detect_types` parameter enables the detection of declared column types. When set to any combination (using bitwise OR) of `PARSE_DECLTYPES` and `PARSE_COLNAMES`, it controls whether and how data types not natively supported by SQLite are looked up and converted to Python types using registered converters. By default, this type detection is disabled.",
           "correct": true,
           "retr_hit": true,
-          "latency": 0.8408610820770264,
+          "latency": 0.8186929225921631,
           "prompt_tokens": 2141,
           "completion_tokens": 71,
           "cost": 0.000157625
@@ -640,7 +787,7 @@
           "answer": "The provided context information does not contain details regarding which `Connection` attribute controls whether the connection may be used from other threads. The text focuses on connection context managers, SQLite URI tricks, and transaction control via `autocommit` and `isolation_level`.",
           "correct": false,
           "retr_hit": false,
-          "latency": 1.0698606967926025,
+          "latency": 0.6538670063018799,
           "prompt_tokens": 1539,
           "completion_tokens": 52,
           "cost": 0.00011355499999999999
@@ -648,10 +795,10 @@
         {
           "id": "Q18",
           "question": "What language construct does the documentation recommend for managing connections and transactions?",
-          "answer": "The documentation recommends using the `with` statement (context manager) for managing connections and transactions. When a `Connection` object is used as a context manager, it automatically commits open transactions if the block finishes without exceptions or rolls them back if an uncaught exception occurs.\n\nAdditionally, for controlling transaction behavior specifically, the documentation notes that the recommended way is via the `autocommit` attribute of the connection, rather than the `isolation_level` attribute.",
+          "answer": "The documentation recommends using the `with` statement (context manager) to manage connections and transactions. When a `Connection` object is used as a context manager, it automatically commits open transactions if the block finishes without exceptions or rolls them back if an uncaught exception occurs.\n\nAdditionally, for controlling transaction behavior specifically, the documentation notes that the recommended way is via the `autocommit` attribute of the connection, rather than the `isolation_level` attribute.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.3055498600006104,
+          "latency": 1.110780954360962,
           "prompt_tokens": 1538,
           "completion_tokens": 93,
           "cost": 0.00012414999999999998
@@ -659,30 +806,30 @@
         {
           "id": "Q19",
           "question": "Which Cursor attribute holds the row id of the last inserted row?",
-          "answer": "The `lastrowid` attribute holds the row id of the last inserted row. It is a read-only attribute that is only updated after successful `INSERT` or `REPLACE` statements using the `execute` method. For other statements, such as those executed via `executemany` or `executescript`, or if the insertion failed, the value remains unchanged. The initial value of this attribute is `None`.",
+          "answer": "The `lastrowid` attribute holds the row id of the last inserted row. It is a read-only attribute that is only updated after successful `INSERT` or `REPLACE` statements using the `execute` method. For other statements, or if the insertion failed, the value remains unchanged, with an initial value of `None`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.102370023727417,
+          "latency": 0.770728349685669,
           "prompt_tokens": 1762,
-          "completion_tokens": 87,
-          "cost": 0.00013715
+          "completion_tokens": 68,
+          "cost": 0.00013221
         },
         {
           "id": "Q20",
           "question": "Which Connection attribute controls autocommit behavior?",
-          "answer": "The `autocommit` attribute controls autocommit behavior.",
+          "answer": "The `autocommit` attribute controls autocommit behavior. When set to `True`, the context manager does nothing if there is no open transaction, and transactions are not implicitly opened or managed in the same way as when it is `False`. This is the recommended way of controlling transactions.",
           "correct": true,
           "retr_hit": true,
-          "latency": 1.666903018951416,
+          "latency": 0.9228224754333496,
           "prompt_tokens": 1534,
-          "completion_tokens": 13,
-          "cost": 0.00010309
+          "completion_tokens": 59,
+          "cost": 0.00011505
         }
       ]
     },
     {
       "system": "LlamaIndex (k=10)",
-      "build_s": 1.0895156860351562,
+      "build_s": 1.1290879249572754,
       "rows": [
         {
           "id": "Q1",
@@ -690,7 +837,7 @@
           "answer": "The Python module documented here is `sqlite3`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 3.013308525085449,
+          "latency": 3.2616684436798096,
           "prompt_tokens": 1537,
           "completion_tokens": 10,
           "cost": 0.000102505
@@ -698,13 +845,13 @@
         {
           "id": "Q2",
           "question": "Which version of the DB-API does the sqlite3 module implement?",
-          "answer": "The :mod:`!sqlite3` module implements the DB-API 2.0 specification.",
+          "answer": "The :mod:`sqlite3` module implements the DB-API 2.0 specification.",
           "correct": true,
           "retr_hit": true,
-          "latency": 3.9500603675842285,
-          "prompt_tokens": 1264,
-          "completion_tokens": 19,
-          "cost": 8.71e-05
+          "latency": 4.135743618011475,
+          "prompt_tokens": 1263,
+          "completion_tokens": 18,
+          "cost": 8.677500000000001e-05
         },
         {
           "id": "Q3",
@@ -712,7 +859,7 @@
           "answer": "SQLite is a C library.",
           "correct": true,
           "retr_hit": true,
-          "latency": 4.3578200340271,
+          "latency": 3.0702950954437256,
           "prompt_tokens": 1232,
           "completion_tokens": 6,
           "cost": 8.164000000000001e-05
@@ -723,7 +870,7 @@
           "answer": "To create an SQLite database that exists only in memory, you pass the special string `\":memory:\"` to the `sqlite3.connect()` function.",
           "correct": true,
           "retr_hit": true,
-          "latency": 4.357950687408447,
+          "latency": 4.1484551429748535,
           "prompt_tokens": 1332,
           "completion_tokens": 30,
           "cost": 9.438e-05
@@ -731,13 +878,13 @@
         {
           "id": "Q5",
           "question": "What is the default placeholder style used for parameters in sqlite3?",
-          "answer": "The provided context does not specify a single default placeholder style for parameters in `sqlite3`. It states that SQL statements may use one of two kinds of placeholders: question marks (qmark style) or named placeholders (named style).\n\n*   For the **qmark style**, parameters must be a sequence whose length matches the number of placeholders.\n*   For the **named style**, parameters must be an instance of a dictionary containing keys for all named parameters.\n\nThe text notes that PEP 249 numeric placeholders are not supported and will be interpreted as named placeholders if used. The choice between qmark and named styles depends on how the query is written by the developer, rather than a system-wide default setting.",
+          "answer": "The provided context does not specify a single default placeholder style for parameters in `sqlite3`. It describes two supported styles:\n\n*   **qmark style**: Uses question marks (`?`). Parameters must be a sequence whose length matches the number of placeholders.\n*   **named style**: Uses named placeholders (e.g., `:name`). Parameters must be an instance of a dictionary containing keys for all named parameters.\n\nThe text provides examples of using both styles but does not indicate that one is the default over the other; it simply states that SQL statements may use one of these two kinds of placeholders.",
           "correct": true,
           "retr_hit": true,
-          "latency": 8.26640009880066,
-          "prompt_tokens": 2359,
-          "completion_tokens": 146,
-          "cost": 0.000191295
+          "latency": 6.619383096694946,
+          "prompt_tokens": 2335,
+          "completion_tokens": 122,
+          "cost": 0.000183495
         },
         {
           "id": "Q6",
@@ -745,7 +892,7 @@
           "answer": "Named placeholders in SQL statements are marked using a colon followed by the parameter name (e.g., `:name`).",
           "correct": true,
           "retr_hit": true,
-          "latency": 3.543403148651123,
+          "latency": 3.4233155250549316,
           "prompt_tokens": 1266,
           "completion_tokens": 23,
           "cost": 8.827e-05
@@ -756,7 +903,7 @@
           "answer": "The `Connection.execute()` method returns a new :class:`Cursor` object.",
           "correct": true,
           "retr_hit": true,
-          "latency": 4.098714351654053,
+          "latency": 3.3972909450531006,
           "prompt_tokens": 1412,
           "completion_tokens": 16,
           "cost": 9.594e-05
@@ -767,7 +914,7 @@
           "answer": "The `executescript` method executes a script containing multiple SQL statements at once.",
           "correct": true,
           "retr_hit": true,
-          "latency": 4.03532600402832,
+          "latency": 4.2046003341674805,
           "prompt_tokens": 886,
           "completion_tokens": 17,
           "cost": 6.201e-05
@@ -775,65 +922,65 @@
         {
           "id": "Q9",
           "question": "Which Cursor method executes the same statement repeatedly for a sequence of parameter sets?",
-          "answer": "The `executemany` method executes the same parameterized SQL statement repeatedly for every item in a provided sequence of parameters. It is designed to run Data Manipulation Language (DML) statements multiple times, once for each set of parameters in the iterable passed to it.",
+          "answer": "The `executemany` method executes the same parameterized SQL statement repeatedly for every item in a provided sequence of parameters. It is designed to run Data Manipulation Language (DML) statements multiple times, once for each set of parameters in the iterable.",
           "correct": true,
           "retr_hit": true,
-          "latency": 6.040251970291138,
-          "prompt_tokens": 1829,
-          "completion_tokens": 56,
-          "cost": 0.000133445
+          "latency": 5.572627544403076,
+          "prompt_tokens": 1826,
+          "completion_tokens": 53,
+          "cost": 0.00013247
         },
         {
           "id": "Q10",
           "question": "What is the base exception class defined by the sqlite3 module?",
-          "answer": "The base exception class defined by the `sqlite3` module is `Error`. It serves as the parent class for other exceptions in the module, such as `DatabaseError`, and is itself a subclass of `Exception`.",
+          "answer": "The base exception class defined by the `sqlite3` module is `Error`. It serves as the parent class for all other exceptions in the module and is itself a subclass of `Exception`.",
           "correct": false,
           "retr_hit": true,
-          "latency": 4.611466884613037,
-          "prompt_tokens": 1219,
-          "completion_tokens": 44,
-          "cost": 9.0675e-05
+          "latency": 4.03205418586731,
+          "prompt_tokens": 1213,
+          "completion_tokens": 38,
+          "cost": 8.8725e-05
         },
         {
           "id": "Q11",
           "question": "What exception is raised when a database operation fails because the database is locked?",
-          "answer": "The exception raised when a database operation fails because the database is locked is `OperationalError`. This occurs when the connection waits for the specified timeout period (defaulting to five seconds) and another connection still holds a lock on the table.",
+          "answer": "The exception raised when a database operation fails because the database is locked is `OperationalError`. This occurs when the connection waits for the specified timeout period (defaulting to five seconds) without being able to access a table that is locked by another transaction.",
           "correct": true,
           "retr_hit": true,
-          "latency": 11.31689977645874,
-          "prompt_tokens": 987,
-          "completion_tokens": 48,
-          "cost": 7.6635e-05
+          "latency": 5.250455856323242,
+          "prompt_tokens": 990,
+          "completion_tokens": 51,
+          "cost": 7.761000000000001e-05
         },
         {
           "id": "Q12",
           "question": "Which row factory returns rows that can be accessed by column name?",
-          "answer": "The `sqlite3.Row` class returns rows that can be accessed by column name. It provides case-insensitive named access to columns in addition to indexed access.\n\nAdditionally, a custom row factory can be created to return each row as a dictionary (`dict`), which also allows access by column name. For example, a factory function can map column names from the cursor description to their corresponding values in the row tuple.",
+          "answer": "The `sqlite3.Row` class returns rows that can be accessed by column name. It provides case-insensitive named access to columns in addition to indexed access.\n\nAdditionally, a custom row factory can be created to return rows as a `dict`, where column names are mapped to values, allowing access by column name. Another option is a factory that returns a `namedtuple`, which also allows attribute access using column names.",
           "correct": true,
           "retr_hit": true,
-          "latency": 9.141114234924316,
-          "prompt_tokens": 1043,
-          "completion_tokens": 84,
-          "cost": 8.963499999999999e-05
+          "latency": 7.192442417144775,
+          "prompt_tokens": 1044,
+          "completion_tokens": 85,
+          "cost": 8.996e-05
         },
         {
           "id": "Q13",
           "question": "Which Connection attribute reports the total number of rows modified, inserted, or deleted?",
-          "answer": "The `rowcount` attribute reports the number of modified rows for `INSERT`, `UPDATE`, `DELETE`, and `REPLACE` statements. It is a read-only attribute that returns `-1` for other statements, such as Common Table Expression (CTE) queries. This value is only updated by the `execute` and `executemany` methods after the statement has completed, meaning resulting rows must be fetched for `rowcount` to reflect the correct count.",
+          "answer": "The `rowcount` attribute reports the number of modified rows for `INSERT`, `UPDATE`, `DELETE`, and `REPLACE` statements. It is a read-only attribute that returns `-1` for other statements, including Common Table Expression (CTE) queries. This value is only updated by the `execute` and `executemany` methods after the statement has run to completion, meaning resulting rows must be fetched for `rowcount` to be updated.",
           "correct": false,
           "retr_hit": false,
-          "latency": 6.295671463012695,
-          "prompt_tokens": 528,
-          "completion_tokens": 96,
-          "cost": 5.9279999999999995e-05
+          "latency": 6.32486891746521,
+          "prompt_tokens": 527,
+          "completion_tokens": 95,
+          "cost": 5.895500000000001e-05
         },
         {
           "id": "Q14",
           "question": "Which sqlite3 module function registers a callable that adapts a Python object to an SQLite value?",
-          "answer": "The function used to register a callable that adapts a Python object to an SQLite-compatible type is `register_adapter`. This function takes the custom Python type and an adapter callable as arguments.",
+          "answer": "The function used to register a callable that adapts a Python object to an SQLite-compatible type is `register_adapter`. This function takes the custom Python class and a conversion function as arguments.",
           "correct": true,
           "retr_hit": true,
-          "latency": 4.353256940841675,
+          "latency": 5.416811466217041,
           "prompt_tokens": 1065,
           "completion_tokens": 37,
           "cost": 7.8845e-05
@@ -841,32 +988,32 @@
         {
           "id": "Q15",
           "question": "Which sqlite3 module function registers a callable that converts SQLite values into custom Python types?",
-          "answer": "The `register_converter` function registers a callable that converts SQLite values of a specific type into custom Python objects. The converter is invoked for all SQLite values of the specified type, receives a bytes object as input, and should return an object of the desired Python type.",
+          "answer": "The function that registers a callable to convert SQLite values into custom Python types is `register_converter`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 5.600173473358154,
-          "prompt_tokens": 750,
-          "completion_tokens": 53,
-          "cost": 6.253e-05
+          "latency": 3.6868197917938232,
+          "prompt_tokens": 716,
+          "completion_tokens": 19,
+          "cost": 5.148e-05
         },
         {
           "id": "Q16",
           "question": "Which parameter of sqlite3.connect() enables detection of declared column types?",
-          "answer": "The `detect_types` parameter enables the detection of declared column types. When set to any combination (using bitwise OR) of `PARSE_DECLTYPES` and `PARSE_COLNAMES`, it controls whether and how data types not natively supported by SQLite are looked up and converted to Python types using registered converters. By default, this type detection is disabled.",
+          "answer": "The `detect_types` parameter enables the detection of declared column types. When set to any combination (using bitwise OR) of `PARSE_DECLTYPES` and `PARSE_COLNAMES`, it controls whether and how data types not natively supported by SQLite are looked up and converted to Python types using registered converters. By default, this parameter is set to 0, meaning type detection is disabled.",
           "correct": true,
           "retr_hit": true,
-          "latency": 5.658310413360596,
-          "prompt_tokens": 851,
-          "completion_tokens": 71,
-          "cost": 7.3775e-05
+          "latency": 6.23919677734375,
+          "prompt_tokens": 859,
+          "completion_tokens": 79,
+          "cost": 7.6375e-05
         },
         {
           "id": "Q17",
           "question": "Which Connection attribute controls whether the connection may be used from other threads?",
-          "answer": "The `check_same_thread` parameter in the `connect()` function controls whether the connection may be used from other threads. If set to `True` (the default), a `ProgrammingError` is raised if the database connection is accessed by a thread other than the one that created it. If set to `False`, the connection can be accessed in multiple threads, though write operations may need to be serialized by the user to avoid data corruption.",
+          "answer": "The `check_same_thread` parameter in the `connect()` function controls whether the connection may be used from other threads. If set to `True` (the default), a `ProgrammingError` is raised if the database connection is used by a thread other than the one that created it. If set to `False`, the connection may be accessed in multiple threads, though write operations may need to be serialized by the user to avoid data corruption.",
           "correct": true,
           "retr_hit": true,
-          "latency": 7.032495975494385,
+          "latency": 6.932088613510132,
           "prompt_tokens": 982,
           "completion_tokens": 89,
           "cost": 8.697e-05
@@ -874,13 +1021,13 @@
         {
           "id": "Q18",
           "question": "What language construct does the documentation recommend for managing connections and transactions?",
-          "answer": "The documentation recommends using the `with` statement (context manager) to manage connections and transactions. When a `Connection` object is used as a context manager, it automatically commits open transactions if the block finishes without exceptions, or rolls them back if an uncaught exception occurs.\n\nAdditionally, for controlling transaction behavior specifically, the documentation notes that the recommended way is via the `autocommit` attribute of the connection, rather than the legacy `isolation_level` attribute. The `isolation_level` parameter has no effect unless `autocommit` is set to `LEGACY_TRANSACTION_CONTROL`.",
+          "answer": "The documentation recommends using the `with` statement (context manager) to manage connections and transactions. When a `Connection` object is used as a context manager, it automatically commits open transactions if the block finishes without exceptions, or rolls them back if an uncaught exception occurs.\n\nAdditionally, for controlling transaction behavior specifically, the documentation notes that the recommended way is via the `autocommit` attribute of the connection, rather than the legacy `isolation_level` attribute. The `isolation_level` has no effect unless `autocommit` is set to `LEGACY_TRANSACTION_CONTROL`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 7.131340026855469,
-          "prompt_tokens": 1137,
-          "completion_tokens": 120,
-          "cost": 0.000105105
+          "latency": 7.536454200744629,
+          "prompt_tokens": 1136,
+          "completion_tokens": 119,
+          "cost": 0.00010478
         },
         {
           "id": "Q19",
@@ -888,7 +1035,7 @@
           "answer": "The `lastrowid` attribute holds the row id of the last inserted row. It is a read-only attribute that is only updated after successful `INSERT` or `REPLACE` statements using the `execute` method. For other statements, such as those executed via `executemany` or `executescript`, or if the insertion failed, the value remains unchanged. The initial value of this attribute is `None`.",
           "correct": true,
           "retr_hit": true,
-          "latency": 5.974175453186035,
+          "latency": 5.99747896194458,
           "prompt_tokens": 896,
           "completion_tokens": 87,
           "cost": 8.086e-05
@@ -896,465 +1043,13 @@
         {
           "id": "Q20",
           "question": "Which Connection attribute controls autocommit behavior?",
-          "answer": "The `autocommit` attribute controls autocommit behavior. When set to `True`, the connection operates in SQLite's autocommit mode, where `commit()` and `rollback()` have no effect. When set to `False`, it selects PEP 249-compliant transaction behavior, ensuring a transaction is always open until explicitly closed with `commit()` or `rollback()`. Additionally, setting it to `LEGACY_TRANSACTION_CONTROL` enables pre-Python 3.12 (non-PEP 249-compliant) transaction control. Changing this attribute to `False` opens a new transaction, while changing it to `True` commits any pending transaction.",
+          "answer": "The `autocommit` attribute controls autocommit behavior. When set to `True`, the connection operates in SQLite's autocommit mode, where `commit()` and `rollback()` have no effect. When set to `False`, it selects PEP 249-compliant transaction behavior, ensuring a transaction is always open until explicitly closed with `commit()` or `rollback()`. Additionally, setting `autocommit` to `LEGACY_TRANSACTION_CONTROL` (the default) restores pre-Python 3.12 transaction control behavior, which relies on the `isolation_level` attribute for implicit transaction management.",
           "correct": true,
           "retr_hit": true,
-          "latency": 8.256946086883545,
-          "prompt_tokens": 929,
-          "completion_tokens": 138,
-          "cost": 9.6265e-05
-        }
-      ]
-    },
-    {
-      "system": "rag-kit (toc-first terse sync, local)",
-      "build_s": 4.524560213088989,
-      "rows": [
-        {
-          "id": "Q1",
-          "question": "What is the name of the Python module documented here?",
-          "answer": "The Python module documented in this text is **`sqlite3`**, which provides a DB-API 2.0 interface for SQLite databases. It allows Python applications to interact with SQLite databases, supporting features such as transaction control, cursor management, and extensible type systems.\n\n### Key Technical Details and Functionality\n\n**Module Initialization and Connection**\nTo begin working with the database, you import the module and create a connection using `sqlite3.connect()`. This function creates a new database file (e.g., `tutorial.db`) if it does not exist, or opens an existing one. The returned object is a **`Connection`** instance representing the link to the on-disk database.\n\n**Type System and Adaptation**\nSQLite natively supports a limited set of data types:\n*   `NULL`: Maps to Python `None`.\n*   `INTEGER`: Maps to Python `int`.\n*   `REAL`: Maps to Python `float`.\n*   `TEXT`: Maps to Python `str` by default (configurable via the `text_factory` attribute).\n*   `BLOB`: Maps to Python `bytes`.\n\nBecause SQLite has limited native types, the `sqlite3` module allows storing custom Python types through **adapters**. There are two primary methods for adaptation:\n1.  **Self-Adaptation**: The Python object implements its own adaptation logic.\n2.  **Adapter Callables**: You can register a custom adapter function using the module-level function **`register_adapter(type, adapter)`**.\n    *   The `type` parameter specifies the Python class to be adapted.\n    *   The `adapter` parameter is a callable that accepts a Python object of the specified type and must return a value compatible with SQLite's native types.\n\n**Conversion and Type Detection**\nConversely, the module can convert SQLite values back into custom Python types using **converters**. These are registered via **`register_converter(typename, converter)`**:\n*   `typename`: The name of the SQLite type (case-insensitive matching).\n*   `converter`: A callable invoked for all SQLite values of that type. It receives a `bytes` object and must return the desired Python object.\n*   Type detection behavior is controlled by the `detect_types` parameter passed to `connect()`.\n\n**Deprecation Note**\nAs of Python 3.12, the default adapters and converters provided by the module are **deprecated**. Users are encouraged to implement custom adapter and converter recipes tailored to their specific needs rather than relying on defaults.\n\n**Transaction Control**\nThe module offers multiple methods for controlling transactions (opening, closing, and committing/rolling back changes). This includes support for context managers and shortcut methods on the connection object.\n\n**Cursor and Row Objects**\n*   **Cursor Objects**: Used to execute SQL statements (`SELECT`, `INSERT`, etc.) and fetch results. They provide attributes like `description` (column names) and `lastrowid` (the row ID of the last inserted row).\n*   **Row Objects**: Represent rows returned from queries. Custom row factories can be registered to change how rows are returned (e.g., as dictionaries instead of tuples).\n\n**Additional Features**\n*   **Placeholders**: Values in SQL queries should be bound using placeholders to prevent SQL injection.\n*   **Text Encoding**: The module handles non-UTF-8 text encodings, though it does not support strings containing surrogates directly.\n*   **URIs**: Supports connecting to SQLite databases via URIs.\n*   **Backup**: Includes functionality to back up databases with parameters for sleep intervals and database names (e.g., `\"main\"`, `\"temp\"`).",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 5.807479619979858,
-          "prompt_tokens": 1665,
-          "completion_tokens": 768,
-          "cost": 0.000307905
-        },
-        {
-          "id": "Q2",
-          "question": "Which version of the DB-API does the sqlite3 module implement?",
-          "answer": "The `sqlite3` module implements the **DB-API 2.0** specification, which is formally described in **PEP 249**. This compliance ensures that the module provides a consistent SQL interface for interacting with SQLite databases, adhering to the standard requirements for Python database adapters.\n\nKey technical details regarding this implementation include:\n\n*   **Thread Safety Constant**: The module defines a specific attribute named `threadsafety`. This integer constant is required by the DB-API 2.0 specification and indicates the level of thread safety supported by the module. Its value is determined by the default threading mode (`threading mode`) configured during the compilation of the underlying SQLite library.\n*   **Interface Compliance**: The module was designed to provide an SQL interface that strictly follows the rules and behaviors outlined in PEP 249, allowing developers to write code that can be easily ported between different database backends (such as PostgreSQL or Oracle) while using SQLite as the primary engine.\n*   **Module Origin**: The module was written by Gerhard H\u00e4ring and requires the third-party SQLite library to function.\n\nThis adherence to DB-API 2.0 allows the `sqlite3` module to support standard features such as connection objects, cursor objects, row objects, and blob objects, all of which follow the conventions defined in the specification.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.607422113418579,
-          "prompt_tokens": 1502,
-          "completion_tokens": 272,
-          "cost": 0.00016835
-        },
-        {
-          "id": "Q3",
-          "question": "SQLite itself is written in what programming language?",
-          "answer": "Based on the provided document, **SQLite** is written in the **C programming language**.\n\nThe text explicitly describes SQLite as a \"C library\" that provides a lightweight, disk-based database solution. This C implementation allows it to operate without requiring a separate server process and enables access via a nonstandard variant of the SQL query language. The Python `sqlite3` module serves as a DB-API 2.0 interface (as defined in :pep:`249`) that wraps this underlying C library, allowing Python applications to interact with the database.\n\nKey technical details regarding the environment mentioned in the document include:\n*   **Runtime Library**: The version of the underlying C library can be retrieved using the `sqlite_version` attribute (a string) or `sqlite_version_info` attribute (a tuple of integers).\n*   **Versioning**: Specific features, such as the `-v` or `--version` command-line option for printing the library version, were added in Python 3.12.\n*   **Keywords**: A constant named `SQLITE_KEYWORDS` exists as a tuple containing all SQLite keywords, though this is only available if Python was compiled with SQLite 3.24.0 or greater.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.2607808113098145,
-          "prompt_tokens": 1433,
-          "completion_tokens": 251,
-          "cost": 0.000158405
-        },
-        {
-          "id": "Q4",
-          "question": "What special string do you pass to sqlite3.connect() to create an in-memory database?",
-          "answer": "To create an in-memory database using the `sqlite3.connect()` function, you must pass the special string **`:memory:`** as the `database` argument.\n\nWhen this specific string is provided:\n*   A new SQLite database is created that exists only in memory and does not write to any disk file.\n*   The connection object returned represents a connection to this temporary, volatile database.\n*   This behavior is distinct from creating a standard on-disk database file (like `\"tutorial.db\"`), which would be implicitly created if it did not exist.\n\nAdditionally, for more advanced scenarios involving shared state between multiple connections, you can use **SQLite URIs**. By passing a URI string with the scheme `file:`, the mode set to `memory`, and the cache parameter set to `shared` (e.g., `\"file:mem1?mode=memory&cache=shared\"`), you can create a named in-memory database that allows multiple `Connection` objects to access the same data simultaneously. However, for a standard private in-memory database, the simple string `\":memory:\"` is the primary method.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 1.9728708267211914,
-          "prompt_tokens": 2097,
-          "completion_tokens": 229,
-          "cost": 0.000195845
-        },
-        {
-          "id": "Q5",
-          "question": "What is the default placeholder style used for parameters in sqlite3?",
-          "answer": "Based on the provided documentation, the `sqlite3` module does not enforce a single \"default\" placeholder style that applies universally to all operations. Instead, it supports two distinct styles of placeholders, and the choice depends on how the SQL statement is constructed and executed:\n\n1.  **Question Mark Style (`?`)**:\n    *   This style uses question marks as placeholders in the SQL string (e.g., `SELECT * FROM table WHERE id = ?`).\n    *   When using this style with methods like `execute()`, the `parameters` argument must be a **sequence** (such as a tuple or list).\n    *   The length of this sequence must exactly match the number of placeholders in the SQL statement; otherwise, a `ProgrammingError` is raised.\n    *   Example usage: `cur.execute(\"SELECT * FROM lang WHERE first_appeared = ?\", (1972,))`.\n\n2.  **Named Style (`:name`)**:\n    *   This style uses named placeholders prefixed with a colon (e.g., `INSERT INTO table VALUES(:name, :year)`).\n    *   When using this style, the `parameters` argument must be an instance of a **`dict`** (or a subclass).\n    *   The dictionary must contain keys corresponding to all named parameters in the SQL statement. Any extra items in the dictionary are ignored.\n    *   If named placeholders are used but the `parameters` argument is a sequence instead of a dictionary, a `ProgrammingError` is raised (specifically noted for Python versions 3.14 and later).\n    *   Example usage: `cur.executemany(\"INSERT INTO lang VALUES(:name, :year)\", data)`, where `data` is a list of dictionaries.\n\n**Important Technical Constraints:**\n*   **PEP 249 Numeric Placeholders**: The documentation explicitly states that numeric placeholders (as defined by PEP 249) are **not supported**. If they are used, they will be interpreted as named placeholders rather than positional ones.\n*   **Security**: The documentation strongly advises against using Python's string operations (like `%` formatting or f-strings) to assemble queries due to SQL injection vulnerabilities. Parameter substitution using either of the two placeholder styles described above is the required secure method.\n*   **Method Specifics**: While both styles can be used with `execute()`, the `executemany()` method example in the text specifically demonstrates the **named style** with a list of dictionaries, though the underlying mechanism allows for the qmark style if the parameters are passed as a sequence of sequences.\n\nIn summary, there is no automatic default switch; the developer must choose between the **qmark style** (requiring a sequence of values) or the **named style** (requiring a dictionary of key-value pairs) based on the specific SQL syntax used.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 4.190842866897583,
-          "prompt_tokens": 2106,
-          "completion_tokens": 603,
-          "cost": 0.00029367
-        },
-        {
-          "id": "Q6",
-          "question": "What prefix or syntax marks named placeholders in SQL statements?",
-          "answer": "Based on the provided documentation, named placeholders in SQL statements are marked using a **colon (`:`)** prefix.\n\nHere are the specific technical details regarding their usage:\n\n*   **Syntax Mark**: The colon character (`:`) serves as the indicator for named placeholders. This is distinct from the question mark (`?`) used for \"qmark style\" (unnamed) placeholders.\n*   **Parameter Requirements**: When using named placeholders, the `parameters` argument passed to the `Cursor.execute()` method must be a **dictionary** (`dict`).\n    *   If a sequence (such as a tuple or list) is provided instead of a dictionary while named placeholders are present in the SQL string, a `ProgrammingError` is raised.\n    *   The keys in the dictionary correspond to the names following the colons in the SQL statement.\n*   **Version Changes**: As of version 3.14, the documentation explicitly notes that if named placeholders are used and the items in `parameters` are sequences rather than dictionaries, a `ProgrammingError` is emitted.\n*   **Numeric Placeholders**: The documentation warns that numeric placeholders (e.g., `:1`, `:2`) are **not supported**. If they are used, they will be interpreted as named placeholders, which can lead to unexpected behavior or errors if the parameter structure does not match.\n*   **Security Context**: Using these placeholders (whether named or qmark style) is the recommended method for binding Python values to SQL queries to prevent SQL injection attacks, rather than using Python's string formatting operations.\n\nIn summary, to use named placeholders, you write your SQL with parameters prefixed by a colon (e.g., `WHERE name = :name`) and pass a dictionary containing those keys to the execution method.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 3.1845457553863525,
-          "prompt_tokens": 1674,
-          "completion_tokens": 365,
-          "cost": 0.00020371
-        },
-        {
-          "id": "Q7",
-          "question": "What object does Connection.execute() return?",
-          "answer": "Based on the provided documentation, the `Connection.execute()` method returns a **`Cursor` object**.\n\nHere are the specific technical details regarding this return value and its usage:\n\n*   **Implicit Creation**: When using `execute()`, `executemany()`, or `executescript()` directly on a `Connection` object, the `Cursor` objects are created implicitly. This allows for more concise code without needing to explicitly instantiate a `Cursor` via the `cursor()` method first.\n*   **Return Behavior**: The method returns the newly created cursor object. This enables direct iteration over query results immediately after execution. For example, you can execute a `SELECT` statement and iterate over the rows in a single call chain:\n    ```python\n    for row in con.execute(\"SELECT name, first_appeared FROM lang\"):\n        print(row)\n    ```\n*   **Context Manager Usage**: While the `Connection` object itself can be used as a context manager (via the `with` statement) to handle transaction commits or rollbacks automatically, the `execute()` method specifically returns the cursor. The connection must still be closed manually even when using shortcut methods; the context manager only handles transaction logic, not resource cleanup of the connection itself.\n*   **Parameters**: The `execute()` method accepts SQL queries and optional parameters for binding values (placeholders). It does not require a `factory` argument like the explicit `cursor()` method, which defaults to creating standard `Cursor` instances unless a custom factory is specified during connection creation.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.616236686706543,
-          "prompt_tokens": 1883,
-          "completion_tokens": 317,
-          "cost": 0.000204815
-        },
-        {
-          "id": "Q8",
-          "question": "Which Connection method executes a script containing multiple SQL statements at once?",
-          "answer": "The `Connection` method used to execute a script containing multiple SQL statements at once is **`executescript(sql_script)`**.\n\nHere are the specific technical details regarding its behavior and configuration:\n\n*   **Functionality**: This method executes all SQL statements contained within the provided `sql_script` string in a single call.\n*   **Transaction Handling**:\n    *   If the connection's `autocommit` attribute is set to `LEGACY_TRANSACTION_CONTROL` and there is a pending transaction, an implicit `COMMIT` statement is executed immediately before running the script.\n    *   Regardless of the value of the `isolation_level` attribute, `executescript` implicitly commits any pending transaction before execution begins.\n*   **Error Behavior**: The method raises an exception if the script contains syntax errors or other SQL issues. Unlike standard `execute` calls, it does not support parameter binding for placeholders within the script itself in the same manner as single-statement execution; it expects a raw SQL string.\n*   **Usage Context**: It is distinct from the `execute` method, which is designed for single SQL statements (often with placeholders). `executescript` is specifically intended for running batches of statements, such as schema creation scripts or initialization data dumps.\n\n**Example Usage Pattern:**\n```python\nscript = \"\"\"\nCREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);\nINSERT INTO users (name) VALUES ('Alice');\nINSERT INTO users (name) VALUES ('Bob');\n\"\"\"\nconn.executescript(script)\n```\n\nNote that while `executescript` handles the transaction commit automatically, the connection object itself must still be closed manually using `conn.close()` when finished, as the context manager behavior (if used elsewhere) only applies to `commit`/`rollback` logic for single transactions, not the script execution flow itself.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 3.3602304458618164,
-          "prompt_tokens": 1570,
-          "completion_tokens": 384,
-          "cost": 0.00020188999999999998
-        },
-        {
-          "id": "Q9",
-          "question": "Which Cursor method executes the same statement repeatedly for a sequence of parameter sets?",
-          "answer": "The Cursor method that executes the same statement repeatedly for a sequence of parameter sets is **`executemany(sql, parameters)`**.\n\nAccording to the documentation, this method performs the following operations:\n*   **Functionality**: It repeatedly executes the provided parameterized Data Manipulation Language (DML) SQL statement (`sql`) for every item found in the `parameters` argument.\n*   **Transaction Handling**: It utilizes the same implicit transaction handling mechanism as the standard `execute()` method.\n*   **Parameter Requirements**:\n    *   The `sql` argument must be a single SQL DML statement. If it contains more than one SQL statement or is not a DML statement, a `ProgrammingError` is raised.\n    *   The `parameters` argument must be an iterable containing multiple sets of values.\n    *   **Placeholder Compatibility**:\n        *   For **qmark style** placeholders (question marks), the items within the `parameters` iterable must be sequences (e.g., tuples or lists) where the length matches the number of placeholders.\n        *   For **named style** placeholders, the items within the `parameters` iterable must be instances of a `dict` (or subclass). If named placeholders are used and the items in `parameters` are sequences instead of dictionaries, a `ProgrammingError` is emitted.\n*   **Return Value**: The method returns the new cursor object after execution.\n\nThis method is distinct from `executescript()`, which is designed to execute multiple SQL statements in a script rather than repeating a single statement with different parameters. Additionally, while `executemany` is efficient for bulk operations, the documentation notes that for optimal performance when fetching results later, using the `arraysize` attribute is generally preferred over specifying a size parameter during fetch operations.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 3.6620726585388184,
-          "prompt_tokens": 1751,
-          "completion_tokens": 373,
-          "cost": 0.000210795
-        },
-        {
-          "id": "Q10",
-          "question": "What is the base exception class defined by the sqlite3 module?",
-          "answer": "Based on the documentation provided, the base exception class defined by the `sqlite3` module is **`Error`**.\n\nHere are the specific technical details regarding the exception hierarchy and behavior:\n\n*   **Base Class**: `Error` serves as the root of the exception hierarchy for all database-related errors within the module. It is explicitly described as \"The base class of the other exceptions in this module.\"\n*   **Usage**: Because it is the parent class for all specialized database errors, it is recommended to use `Error` when you need to catch all possible database errors with a single `except` statement.\n*   **Inheritance Hierarchy**:\n    *   `Error` is a subclass of the standard Python `Exception`.\n    *   **`DatabaseError`**: This is a direct subclass of `Error` and acts as the base for several types of database-specific errors (e.g., `IntegrityError`, `OperationalError`). It is only raised implicitly through its specialized subclasses.\n    *   **`InterfaceError`**: A subclass of `Error` raised for misuse of the low-level SQLite C API, which typically indicates a bug in the `sqlite3` module itself.\n    *   **`ProgrammingError`**: A subclass of `DatabaseError` (and thus indirectly `Error`) raised for API programming errors, such as supplying the wrong number of bindings to a query or attempting to operate on a closed `Connection`.\n    *   **`IntegrityError`**: A subclass of `DatabaseError` raised when relational integrity is affected, such as a foreign key check failure.\n    *   **`NotSupportedError`**: Raised when a method or database API is not supported by the underlying SQLite library (e.g., setting `deterministic=True` in `create_function` if the library lacks support).\n    *   **`Warning`**: While part of the DB-API 2.0 hierarchy, this exception is not currently raised by the `sqlite3` module itself but may be raised by applications using the module (e.g., if a user-defined function truncates data). It is a subclass of `Exception`.\n\nThis structure ensures that developers can handle broad database issues by catching `Error` or target specific scenarios like transaction failures (`IntegrityError`) or coding mistakes (`ProgrammingError`).",
-          "correct": false,
-          "retr_hit": false,
-          "latency": 3.4996113777160645,
-          "prompt_tokens": 1647,
-          "completion_tokens": 479,
-          "cost": 0.000231595
-        },
-        {
-          "id": "Q11",
-          "question": "What exception is raised when a database operation fails because the database is locked?",
-          "answer": "When a database operation fails because the database is locked, the **`sqlite3.OperationalError`** exception is raised.\n\nThis behavior is governed by the `timeout` parameter in the `sqlite3.connect()` function. When opening a connection, you can specify how many seconds the connection should wait before giving up and raising this error if a table is locked by another transaction.\n\n*   **Parameter Name**: `timeout`\n*   **Default Value**: 5 seconds\n*   **Behavior**: If another connection opens a transaction to modify a table, that table remains locked until the transaction is committed or rolled back. If the waiting time exceeds the value set for `timeout`, the module raises an `OperationalError`.\n\nYou can customize this duration when establishing the connection:\n\n```python\nimport sqlite3\n\n# Wait up to 10 seconds for a lock to be released\ncon = sqlite3.connect(\"example.db\", timeout=10)\n```\n\nIf the lock persists beyond the specified timeout period, the code will catch the `OperationalError`:\n\n```python\ntry:\n    con.execute(\"SELECT * FROM locked_table\")\nexcept sqlite3.OperationalError as e:\n    print(f\"Database is locked: {e}\")\nfinally:\n    con.close()\n```\n\nWhile other exceptions like `IntegrityError` (for foreign key violations) or `InternalError` (for SQLite library issues) exist within the `sqlite3` module hierarchy, the specific failure mode due to a lock exceeding the timeout threshold is strictly handled by `OperationalError`.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.712991952896118,
-          "prompt_tokens": 1609,
-          "completion_tokens": 327,
-          "cost": 0.000189605
-        },
-        {
-          "id": "Q12",
-          "question": "Which row factory returns rows that can be accessed by column name?",
-          "answer": "Based on the provided documentation, there are three primary methods to configure a row factory that allows rows to be accessed by column name:\n\n### 1. Using `sqlite3.Row` (Recommended)\nThe most efficient built-in option is the **`sqlite3.Row`** class. It serves as a highly optimized row factory that supports iteration, equality testing, `len()`, and mapping access by both column name and index.\n\n*   **Configuration**: Assign the class directly to the connection's `row_factory` attribute.\n    ```python\n    con.row_factory = sqlite3.Row\n    ```\n*   **Access Methods**:\n    *   **By Name**: Case-insensitive access using string keys (e.g., `row[\"name\"]`).\n    *   **By Index**: Standard integer indexing (e.g., `row[0]`).\n    *   **Keys**: The `.keys()` method returns a list of column names.\n*   **Performance**: It provides named access with minimal memory overhead and performance impact compared to standard tuples.\n\n### 2. Using a Custom Dictionary Factory\nYou can define a custom callable function that returns each row as a **`dict`**, mapping column names to values. This requires setting the `row_factory` attribute on either the `Connection` or `Cursor` object.\n\n*   **Implementation Pattern**:\n    The factory function accepts two arguments: a `Cursor` object and a tuple of row values. It extracts field names from `cursor.description` and zips them with the row values.\n    ```python\n    def dict_factory(cursor, row):\n        fields = [column[0] for column in cursor.description]\n        return {key: value for key, value in zip(fields, row)}\n    ```\n*   **Configuration**:\n    ```python\n    con.row_factory = dict_factory\n    ```\n*   **Result**: Queries return standard Python dictionaries (e.g., `{'a': 1, 'b': 2}`).\n\n### 3. Using a Named Tuple Factory\nYou can create a **named tuple** factory to return rows as objects with named attributes. This utilizes the `collections.namedtuple` class.\n\n*   **Implementation Pattern**:\n    Define a factory that dynamically creates a new namedtuple class based on the column names retrieved from `cursor.description`.\n    ```python\n    from collections import namedtuple\n\n    def namedtuple_factory(cursor, row):\n        fields = [column[0] for column in cursor.description]\n        cls = namedtuple(\"Row\", fields)\n        return cls._make(row)\n    ```\n*   **Configuration**:\n    ```python\n    con.row_factory = namedtuple_factory\n    ```\n*   **Result**: Rows are returned as named tuple instances (e.g., `Row(a=1, b=2)`), supporting both indexed access (`row[0]`) and attribute access (`row.a`).\n\n### General Configuration Details\n*   **Attribute Location**: While `row_factory` exists on both `Connection` and `Cursor` objects, it is recommended to set it on the **`Connection`** object. This ensures all cursors created from that connection automatically use the specified factory.\n*   **Default Behavior**: If `row_factory` is set to `None` (the default), rows are returned as standard **`tuple`** objects, which only support integer indexing and do not allow access by column name.\n*   **Callable Signature**: Any custom row factory must be a callable accepting exactly two arguments:\n    1.  A **`Cursor`** object.\n    2.  A **`tuple`** of row values.\n    It must return a custom object representing the SQLite row.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 5.536986351013184,
-          "prompt_tokens": 1989,
-          "completion_tokens": 776,
-          "cost": 0.00033104499999999997
-        },
-        {
-          "id": "Q13",
-          "question": "Which Connection attribute reports the total number of rows modified, inserted, or deleted?",
-          "answer": "Based on the provided documentation for the `sqlite3` module, the **Connection** attribute that reports the total number of rows modified, inserted, or deleted is **`total_changes`**.\n\n### Technical Details\n\n*   **Attribute Name**: `total_changes`\n*   **Object Type**: Read-only attribute of the `Connection` class.\n*   **Functionality**: It returns an integer representing the cumulative count of database rows that have been:\n    *   Modified (via `UPDATE`)\n    *   Inserted (via `INSERT`)\n    *   Deleted (via `DELETE`)\n*   **Scope**: The counter tracks changes since the specific database connection was opened. It resets or starts counting from the moment the `Connection` object is created via `sqlite3.connect()`.\n*   **Behavior**: This value is updated automatically by the underlying SQLite library as data manipulation operations are executed on the connection. It does not require manual incrementing or specific parameters to function.\n\nThis attribute is distinct from the `rowcount` attribute found on `Cursor` objects, which only reports the number of rows affected by the *most recent* SQL statement executed on that cursor, whereas `total_changes` provides a running total for the entire lifespan of the connection.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.512866735458374,
-          "prompt_tokens": 1600,
-          "completion_tokens": 259,
-          "cost": 0.00017134
-        },
-        {
-          "id": "Q14",
-          "question": "Which sqlite3 module function registers a callable that adapts a Python object to an SQLite value?",
-          "answer": "The function used to register a callable that adapts a Python object to an SQLite-compatible value is **`register_adapter`**.\n\n### Function Signature and Parameters\nThe function is defined as:\n`register_adapter(type, adapter, /)`\n\n*   **`type`**: The specific Python type (class) that you wish to adapt. This must be the class object itself (e.g., `Point`).\n*   **`adapter`**: A callable (function or method) that will be invoked whenever an instance of the specified *type* needs to be stored in the database.\n    *   It accepts a single argument: a Python object of the specified *type*.\n    *   It **must** return a value of a type that SQLite natively understands (typically `str`, `int`, `float`, or `bytes`).\n\n### How It Works\nWhen a query is executed using placeholders (such as `?`), the `sqlite3` module checks if an adapter has been registered for the type of the parameter being passed. If one exists, it calls the registered adapter function with the Python object as the argument. The string or value returned by this function is then used in the SQL statement.\n\n### Implementation Example\nTo adapt a custom class named `Point` (with attributes `x` and `y`) into a semicolon-separated string format:\n\n1.  Define the custom class:\n    ```python\n    class Point:\n        def __init__(self, x, y):\n            self.x, self.y = x, y\n    ```\n\n2.  Define the adapter function:\n    ```python\n    def adapt_point(point):\n        return f\"{point.x};{point.y}\"\n    ```\n\n3.  Register the adapter:\n    ```python\n    import sqlite3\n    sqlite3.register_adapter(Point, adapt_point)\n    ```\n\n4.  Use the adapter in a query:\n    ```python\n    con = sqlite3.connect(\":memory:\")\n    cur = con.cursor()\n    \n    # The Point object is automatically converted to \"1.0;2.5\" before execution\n    cur.execute(\"SELECT ?\", (Point(1.0, 2.5),))\n    print(cur.fetchone()[0])  # Output: 1.0;2.5\n    \n    con.close()\n    ```\n\n### Important Notes\n*   **Precedence**: If a Python object implements the `__conform__` protocol (returning a value when asked for `sqlite3.PrepareProtocol`), the explicit adapter registered via `register_adapter` takes precedence over the object's internal adaptation logic.\n*   **Scope**: Adapters are registered globally for the Python process. Once registered, they apply to all connections created within that process unless explicitly overridden or the process is restarted.\n*   **Native Types**: The return value of the adapter must be compatible with SQLite's native types (TEXT, INTEGER, REAL, BLOB).",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 4.298400640487671,
-          "prompt_tokens": 1824,
-          "completion_tokens": 620,
-          "cost": 0.00027976
-        },
-        {
-          "id": "Q15",
-          "question": "Which sqlite3 module function registers a callable that converts SQLite values into custom Python types?",
-          "answer": "The function used to register a callable that converts SQLite values into custom Python types is **`register_converter`**.\n\nThis function is part of the extensible type system in the `sqlite3` module, which allows users to define how data retrieved from the database (SQLite side) should be transformed into specific Python objects.\n\n### Function Signature and Parameters\nThe function signature is:\n```python\nregister_converter(typename, converter, /)\n```\n\n*   **`typename`**: A string representing the SQLite type name (e.g., `\"INTEGER\"`, `\"TEXT\"`, or a custom type name declared in the SQL schema). This tells the module which SQLite column types should trigger the conversion logic.\n*   **`converter`**: A callable (function) that performs the actual conversion.\n    *   It receives a single argument: a **`bytes`** object containing the raw value from the SQLite database.\n    *   It must return an object of the desired custom Python type.\n\n### Usage Context\nTo utilize this function effectively, you typically follow these steps:\n\n1.  **Define the Converter Callable**: Create a function that accepts a `bytes` object and returns your custom Python object. For example, if you have a `Point` class, the converter might parse the bytes to reconstruct the coordinates.\n2.  **Register the Converter**: Call `register_converter` with the target SQLite type name and your defined function.\n3.  **Enable Type Detection**: When establishing a connection using `sqlite3.connect()`, you must pass the `detect_types` parameter set to **`PARSE_DECLTYPES`**. This flag instructs the module to look up registered converters based on the declared types of columns in the database table. Without this flag, the default conversion behavior applies, and custom converters will not be invoked automatically.\n\n### Example Workflow\nIf you wish to convert a SQLite `TEXT` column containing serialized point data into a custom `Point` object:\n\n1.  Define the conversion logic:\n    ```python\n    def convert_point(value):\n        # value is a bytes object from SQLite\n        # Parse and return a Point instance\n        return Point(...)\n    ```\n2.  Register it:\n    ```python\n    sqlite3.register_converter(\"POINT\", convert_point)\n    ```\n3.  Connect with detection enabled:\n    ```python\n    con = sqlite3.connect(\":memory:\", detect_types=sqlite3.PARSE_DECLTYPES)\n    ```\n\nWhen a query retrieves a value from a column declared as type `POINT`, the `convert_point` function will be automatically invoked with the raw bytes, returning the custom Python object.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 3.9940319061279297,
-          "prompt_tokens": 2100,
-          "completion_tokens": 550,
-          "cost": 0.0002795
-        },
-        {
-          "id": "Q16",
-          "question": "Which parameter of sqlite3.connect() enables detection of declared column types?",
-          "answer": "The parameter of `sqlite3.connect()` that enables the detection of declared column types is **`detect_types`**.\n\nTo specifically enable the parsing of declared types (such as those defined in a `CREATE TABLE` statement), you must pass the constant **`sqlite3.PARSE_DECLTYPES`** as the value for this parameter.\n\n### Technical Details and Configuration\n\n*   **Parameter Name**: `detect_types`\n*   **Required Value**: `sqlite3.PARSE_DECLTYPES`\n*   **Behavior**: When this flag is set, the `sqlite3` module looks up a converter function using the first word of the declared type name found in the table schema. This lookup is performed against a dictionary of registered converters. The matching between the declared type name and the converter dictionary key is **case-insensitive**.\n*   **Converter Registration**: To make this work, you must register a custom converter function using `sqlite3.register_converter(typename, converter)`. The `converter` function accepts a `bytes` object and returns an object of the desired Python type.\n\n### Usage Examples\n\n**1. Implicit Detection (Declared Types)**\nYou can create a connection with implicit type detection by setting `detect_types` to `PARSE_DECLTYPES`:\n\n```python\nimport sqlite3\n\n# Define a custom class and conversion logic\nclass Point:\n    def __init__(self, x, y):\n        self.x, self.y = x, y\n\ndef adapt_point(point):\n    return f\"{point.x};{point.y}\"\n\ndef convert_point(s):\n    x, y = list(map(float, s.split(b\";\")))\n    return Point(x, y)\n\n# Register the adapter and converter\nsqlite3.register_adapter(Point, adapt_point)\nsqlite3.register_converter(\"point\", convert_point)\n\n# Connect with detect_types enabled\ncon = sqlite3.connect(\":memory:\", detect_types=sqlite3.PARSE_DECLTYPES)\ncur = con.execute(\"CREATE TABLE test(p point)\") # 'point' is the declared type\n\np = Point(4.0, -3.2)\ncur.execute(\"INSERT INTO test(p) VALUES(?)\", (p,))\ncur.execute(\"SELECT p FROM test\")\n\n# The result will be automatically converted to a Point instance\nprint(cur.fetchone()[0]) \n```\n\n**2. Alternative Options**\nThe `detect_types` parameter supports three configuration modes:\n*   **Implicit**: Set to `sqlite3.PARSE_DECLTYPES` to use declared types from the schema.\n*   **Explicit**: Set to `sqlite3.PARSE_COLNAMES` to use type information embedded in the column alias (e.g., `SELECT col AS \"col [typename]\"`).\n*   **Both**: Set to `sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES`. In this mode, column names take precedence over declared types if both are present.\n\n### Default Adapters and Converters\nBy default, the `sqlite3` module includes built-in adapters and converters for specific types when `detect_types` is active:\n*   **Date/Time**: Converts declared `\"date\"` types to `datetime.date` objects and `\"timestamp\"` types to `datetime.datetime` objects.\n*   **Format**: `datetime` objects are adapted to ISO 8601 format strings.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 4.910501718521118,
-          "prompt_tokens": 1860,
-          "completion_tokens": 690,
-          "cost": 0.0003003
-        },
-        {
-          "id": "Q17",
-          "question": "Which Connection attribute controls whether the connection may be used from other threads?",
-          "answer": "The Connection attribute that controls whether the connection may be used from other threads is **`check_same_thread`**.\n\nThis parameter is passed to the :func:`sqlite3.connect` function when establishing a database connection. It accepts a boolean value with the following behaviors:\n\n*   **`True` (Default)**: If set to `True`, the library raises an :exc:`ProgrammingError` if the database connection is accessed by any thread other than the one that created it. This ensures strict single-threaded access per connection instance.\n*   **`False`**: If set to `False`, the connection may be accessed from multiple threads simultaneously. However, the documentation explicitly warns that in this mode, **write operations may need to be serialized by the user** to avoid data corruption, as the SQLite library itself does not automatically serialize these writes across threads.\n\nThis setting interacts with the underlying SQLite threading modes defined by the `SQLITE_THREADSAFE` compile-time option:\n*   In **single-thread** mode, threads cannot share the module at all.\n*   In **multi-thread** mode, threads can share the module but not connections (unless `check_same_thread` is disabled).\n*   In **serialized** mode, SQLite allows safe usage by multiple threads without restriction, though the Python DB-API layer still enforces the `check_same_thread` check unless explicitly disabled.\n\nAdditionally, the global :attr:`threadsafety` attribute of the module indicates the threading support level available for the specific build of SQLite being used, mapping to DB-API 2.0 levels where:\n*   Level 1 corresponds to \"Threads may not share the module.\"\n*   Level 2 corresponds to \"Threads may share the module, but not connections.\"\n*   Level 3 corresponds to \"Threads may share the module, connections and cursors.\"",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.843384265899658,
-          "prompt_tokens": 1668,
-          "completion_tokens": 378,
-          "cost": 0.00020669999999999998
-        },
-        {
-          "id": "Q18",
-          "question": "What language construct does the documentation recommend for managing connections and transactions?",
-          "answer": "Based on the provided documentation, the recommended language construct for managing connections and transactions in the `sqlite3` module is the **context manager** (utilizing the `with` statement).\n\n### The Context Manager Approach\nThe documentation explicitly recommends using the context manager to ensure that transactions are handled correctly upon exiting the code block. This approach automates the commit or rollback process based on whether an exception occurred:\n\n*   **Successful Execution**: If the body of the `with` statement finishes without raising an exception, the transaction is automatically **committed**.\n*   **Exception Handling**: If an exception occurs within the `with` block, the transaction is automatically **rolled back**. The original exception is still raised after the rollback, allowing it to be caught by a surrounding `try...except` block.\n*   **No-Op Conditions**: If there is no open transaction when leaving the block, or if the connection's `autocommit` attribute is set to `True`, the context manager performs no action.\n\n**Example Usage:**\n```python\ncon = sqlite3.connect(\":memory:\")\ncon.execute(\"CREATE TABLE lang(id INTEGER PRIMARY KEY, name VARCHAR UNIQUE)\")\n\n# Successful execution triggers con.commit() automatically\nwith con:\n    con.execute(\"INSERT INTO lang(name) VALUES(?)\", (\"Python\",))\n\n# If an exception occurs here, con.rollback() is called automatically\ntry:\n    with con:\n        # Code that might raise an exception\n        pass\nexcept Exception as e:\n    # Handle the exception\n    pass\n```\n\n### Transaction Control Configuration\nTo utilize this pattern effectively, specific configuration settings regarding transaction control must be understood:\n\n1.  **`autocommit` Attribute**:\n    *   When `autocommit` is set to `False` (or when using the legacy behavior where `LEGACY_TRANSACTION_CONTROL` is not active), the context manager actively manages the transaction lifecycle.\n    *   If `autocommit` is `True`, the context manager does nothing, and the user must manually call `commit()` before closing the connection to avoid losing pending changes.\n    *   **Note**: The default value for `autocommit` currently defaults to `LEGACY_TRANSACTION_CONTROL`, but this is scheduled to change to `False` in future Python releases.\n\n2.  **`isolation_level` Attribute**:\n    *   If `isolation_level` is not `None` (and `autocommit` is not forcing legacy behavior), new transactions are implicitly opened before executing `INSERT`, `UPDATE`, `DELETE`, or `REPLACE` statements via `execute()` or `executemany()`.\n    *   Valid values for `isolation_level` include `\"DEFERRED\"`, `\"IMMEDIATE\"`, or `\"EXCLUSIVE\"`, which correspond to underlying SQLite transaction behaviors.\n    *   If `isolation_level` is not overridden during connection creation, the default is `\"\"`, which acts as an alias for `\"DEFERRED\"`.\n\n### Alternative Methods\nWhile the context manager is the recommended high-level construct, the documentation also notes:\n*   **Shortcut Methods**: Connections provide shortcut methods like `execute()` which create a cursor internally.\n*   **Manual Control**: Users can manually call `commit()` or `rollback()` methods, though this requires careful handling to prevent data loss if exceptions occur.\n*   **Legacy Behavior**: The `LEGACY_TRANSACTION_CONTROL` constant allows retaining pre-Python 3.12 behavior, where implicit transaction management differs from the current recommendation.\n\nIn summary, the `with` statement acting as a context manager is the primary mechanism advised for robust transaction management, ensuring atomicity and preventing resource leaks or uncommitted data loss.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 5.402935028076172,
-          "prompt_tokens": 1813,
-          "completion_tokens": 772,
-          "cost": 0.000318565
-        },
-        {
-          "id": "Q19",
-          "question": "Which Cursor attribute holds the row id of the last inserted row?",
-          "answer": "The Cursor attribute that holds the row ID of the last inserted row is **`lastrowid`**.\n\nHere are the specific technical details regarding this attribute based on the documentation:\n\n*   **Type**: It is a read-only attribute.\n*   **Functionality**: It provides the row ID of the most recently executed `INSERT` or `REPLACE` statement.\n*   **Update Behavior**: The value is only updated after a successful execution of an `INSERT` or `REPLACE` statement using the `execute` method.\n*   **Behavior with SELECT**: If a `SELECT` statement returns no matching rows, the `lastrowid` attribute remains unchanged (it does not reset to zero or null unless explicitly handled by the application logic, but it simply does not reflect a new insertion).\n*   **Usage Context**: This attribute is accessed directly from the `Cursor` object instance after executing the relevant SQL command.\n\nExample usage pattern implied by the documentation:\n1.  Execute an `INSERT` statement via `cursor.execute(\"INSERT INTO ...\")`.\n2.  Access `cursor.lastrowid` immediately after to retrieve the generated row ID.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.4315130710601807,
-          "prompt_tokens": 1770,
-          "completion_tokens": 240,
-          "cost": 0.00017745
-        },
-        {
-          "id": "Q20",
-          "question": "Which Connection attribute controls autocommit behavior?",
-          "answer": "The `autocommit` attribute of the **Connection** object controls autocommit behavior in the `sqlite3` module.\n\n### Key Technical Details:\n\n- **Attribute Name**: `autocommit`\n- **Type**: Boolean (`bool`) or a special constant\n- **Default Value**: `LEGACY_TRANSACTION_CONTROL` (a constant representing legacy transaction handling mode)\n- **Future Behavior**: The default value is scheduled to change to `False` in a future Python release.\n\n### Behavior Based on `autocommit`:\n\n1. **When `autocommit` is `True`**:\n   - Each SQL statement is executed in its own transaction.\n   - No implicit transactions are opened.\n   - Changes are automatically committed after each statement.\n   - Calling `commit()` or `rollback()` has no effect if there is no open transaction.\n\n2. **When `autocommit` is `False`**:\n   - Transactions must be explicitly managed using `commit()` and `rollback()`.\n   - Implicit transaction handling depends on the `isolation_level` setting (see below).\n\n3. **When `autocommit` is set to `LEGACY_TRANSACTION_CONTROL`** (default):\n   - Legacy transaction control rules apply.\n   - New transactions are implicitly opened before executing `INSERT`, `UPDATE`, `DELETE`, or `REPLACE` statements via `Cursor.execute()` or `Cursor.executemany()`.\n   - Other SQL statements do not trigger implicit transactions.\n   - The `isolation_level` attribute becomes relevant only in this mode.\n\n### Interaction with `isolation_level`:\n\n- The `isolation_level` attribute only has an effect when `autocommit` is set to `LEGACY_TRANSACTION_CONTROL`.\n- If `isolation_level` is `None`, no implicit transactions are opened.\n- If `isolation_level` is one of `\"DEFERRED\"`, `\"IMMEDIATE\"`, or `\"EXCLUSIVE\"`, corresponding SQLite transaction behaviors are applied during implicit transaction management.\n- Default `isolation_level` is `\"\"`, which is equivalent to `\"DEFERRED\"`.\n\n### Additional Notes:\n\n- The `in_transaction` attribute provides a read-only indication of whether a transaction is currently active (`True` if uncommitted changes exist, `False` otherwise).\n- Starting from Python 3.12, the recommended way to control transaction behavior is through the `autocommit` attribute rather than relying solely on `isolation_level`.\n\nThis mechanism allows fine-grained control over transaction semantics, aligning with both PEP 249 standards and SQLite's native transaction model.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 4.095208406448364,
-          "prompt_tokens": 1596,
-          "completion_tokens": 553,
-          "cost": 0.00024752
-        }
-      ]
-    },
-    {
-      "system": "rag-kit (toc-first terse async, local)",
-      "build_s": 4.362111806869507,
-      "rows": [
-        {
-          "id": "Q1",
-          "question": "What is the name of the Python module documented here?",
-          "answer": "The Python module documented in the provided text is **`sqlite3`**.\n\nThis module provides a DB-API 2.0 interface for SQLite databases, allowing Python applications to interact with SQLite files. Below are the specific technical details, configuration settings, and operational methods described in the documentation:\n\n### Core Functionality and Initialization\n*   **Module Name**: `sqlite3`\n*   **Primary Connection Method**: The function `sqlite3.connect()` is used to create a connection to an on-disk database.\n    *   **Parameter**: It accepts a filename (e.g., `\"tutorial.db\"`) representing the database path in the current working directory. If the file does not exist, it is implicitly created.\n    *   **Return Value**: A `Connection` object that represents the active connection to the database.\n*   **Cursor Usage**: To execute SQL statements and fetch results, a database cursor must be obtained from the connection object.\n\n### Data Type System and Adaptation\nSQLite natively supports a limited set of data types, which map to Python types as follows:\n*   **NULL**: Maps to `None`.\n*   **INTEGER**: Maps to `int`.\n*   **REAL**: Maps to `float`.\n*   **TEXT**: Maps to `str` by default (configurable via `Connection.text_factory`).\n*   **BLOB**: Maps to `bytes`.\n\nTo store custom Python types or convert values, the module offers extensibility through adapters and converters:\n1.  **Adapters (Python to SQLite)**: Used to adapt custom Python objects into SQLite-native types before storage.\n    *   **Registration**: Custom adapters can be registered using the function `register_adapter(type, adapter)`.\n        *   **Parameters**:\n            *   `type`: The Python type to be adapted.\n            *   `adapter`: A callable that takes a Python object of the specified type and returns a value compatible with SQLite (e.g., `int`, `str`, `bytes`).\n    *   **Self-Adaptation**: Objects can also implement their own adaptation logic.\n    *   **Deprecation Note**: Default adapters and converters are deprecated as of Python 3.12; users should utilize custom recipes instead.\n\n2.  **Converters (SQLite to Python)**: Used to convert SQLite values back into specific Python types upon retrieval.\n    *   **Registration**: Converters are registered using `register_converter(typename, converter)`.\n        *   **Parameters**:\n            *   `typename`: The name of the SQLite type (case-insensitive matching).\n            *   `converter`: A callable invoked for all values of that type. It receives a `bytes` object and must return the desired Python object.\n    *   **Type Detection**: The behavior of converters is influenced by the `detect_types` parameter passed to `connect()`.\n\n### Transaction Control\nThe module provides multiple methods for controlling transactions:\n*   Transactions can be opened, committed, or rolled back explicitly.\n*   The `Connection` object supports context managers for automatic transaction handling.\n*   Shortcut methods are available for common operations.\n\n### Cursor Attributes and Behavior\n*   **`description`**: A read-only attribute providing column names of the last query. For compatibility with the Python DB API, it returns a 7-tuple per column where the last six items are `None`.\n*   **`lastrowid`**: A read-only attribute returning the row ID of the last inserted row.\n*   **Query Execution**: Returns a 7-tuple for each column even if no rows match, ensuring DB API compliance.\n\n### Configuration and Best Practices\n*   **Naming Conventions**:\n    *   Keywords should be uppercase (`UPPERCASE`).\n    *   Schema names should use `snake_case`.\n    *   String literals should use single quotes.\n    *   Table names should be singular.\n    *   Double quotes should be used for table and column names only when necessary.\n*   **Text Encoding**: The module handles non-UTF-8 text encodings via the `text_factory` attribute. Strings containing surrogates are not supported by the API.\n*   **URIs**: The module supports working with SQLite URIs for advanced database access patterns.\n\n### Command-Line Interface\nA command-line interface is included within the module for direct interaction with SQLite databases.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 6.298537254333496,
-          "prompt_tokens": 1665,
-          "completion_tokens": 920,
-          "cost": 0.000347425
-        },
-        {
-          "id": "Q2",
-          "question": "Which version of the DB-API does the sqlite3 module implement?",
-          "answer": "The `sqlite3` module implements the **DB-API 2.0** specification, as defined by **PEP 249**. This compliance ensures that the module provides a consistent SQL interface for interacting with SQLite databases in Python.\n\nKey technical details regarding this implementation include:\n\n*   **Specification Compliance**: The module is explicitly designed to be compliant with the DB-API 2.0 standard described in PEP 249.\n*   **Thread Safety Constant**: To adhere to the DB-API 2.0 requirements, the module exposes an integer constant named **`threadsafety`**. This attribute indicates the level of thread safety supported by the module and is determined by the default threading mode (`threading mode`) of the underlying SQLite library at compile time.\n*   **Connection Interface**: The primary entry point for creating database connections is the **`connect()`** function. This function accepts several parameters to configure the connection behavior, including:\n    *   `database`: The path to the database file or a URI if `uri=True`.\n    *   `timeout`: Default timeout value (default is `5.0` seconds).\n    *   `detect_types`: An integer flag used to enable type detection for converters.\n    *   `isolation_level`: Controls transaction isolation (default is `\"DEFERRED\"`).\n    *   `check_same_thread`: A boolean to enforce single-threaded access (default is `True`).\n    *   `factory`: Allows specifying a custom class for the connection object.\n    *   `cached_statements`: Sets the number of cached statements (default is `128`).\n    *   `uri`: A boolean flag to treat the database argument as a URI.\n    *   `autocommit`: Controls autocommit behavior (default is `sqlite3.LEGACY_TRANSACTION_CONTROL`).\n\nBy adhering to these standards, the `sqlite3` module allows developers to write portable code that can easily be prototyped with SQLite and later ported to other DB-API 2.0 compliant databases like PostgreSQL or Oracle.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 3.4885778427124023,
-          "prompt_tokens": 1502,
-          "completion_tokens": 431,
-          "cost": 0.00020969
-        },
-        {
-          "id": "Q3",
-          "question": "SQLite itself is written in what programming language?",
-          "answer": "Based on the provided document, **SQLite** is written in the **C programming language**.\n\nThe text explicitly describes SQLite as a \"C library\" that provides a lightweight, disk-based database solution. This C implementation allows it to operate without requiring a separate server process and enables access via a nonstandard variant of the SQL query language. The Python `sqlite3` module serves as a DB-API 2.0 interface (as defined in :pep:`249`) that wraps this underlying C library, allowing Python applications to interact with the database.\n\nKey technical details regarding the environment mentioned in the document include:\n*   **Runtime Library**: The version of the underlying C library can be retrieved using the `sqlite_version` attribute (a string) or `sqlite_version_info` (a tuple of integers).\n*   **Versioning**: Specific features, such as the `-v` or `--version` command-line option for printing the library version, were added in Python 3.12.\n*   **Keywords**: A constant named `SQLITE_KEYWORDS` exists as a tuple containing all SQLite keywords, though this is only available if Python was compiled with SQLite 3.24.0 or greater.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.467895984649658,
-          "prompt_tokens": 1433,
-          "completion_tokens": 250,
-          "cost": 0.000158145
-        },
-        {
-          "id": "Q4",
-          "question": "What special string do you pass to sqlite3.connect() to create an in-memory database?",
-          "answer": "To create an in-memory database using the `sqlite3.connect()` function, you must pass the special string **`:memory:`** as the `database` argument.\n\nWhen this specific string is provided:\n*   A new SQLite database is created that exists only in memory and does not persist to disk.\n*   The connection opens immediately to this temporary database.\n*   If multiple connections are established with the same `:memory:` string, they each receive a separate, private in-memory database unless a shared named in-memory database is configured via URI parameters (e.g., `file:mem1?mode=memory&cache=shared`).\n\n**Technical Details from Documentation:**\n*   **Parameter Name**: `database`\n*   **Expected Value**: `\":memory:\"`\n*   **Type**: Path-like object (specifically a string literal).\n*   **Behavior**: The documentation explicitly states that passing `\":memory:\"` creates \"an SQLite database existing only in memory.\" Unlike standard file paths, this does not create a physical file on the disk.\n\n**Example Usage:**\n```python\nimport sqlite3\n\n# Create a connection to an in-memory database\ncon = sqlite3.connect(\":memory:\")\n\n# You can now execute SQL commands\ncon.execute(\"CREATE TABLE lang(name, first_appeared)\")\ncon.execute(\"INSERT INTO lang VALUES('C++', 1985)\")\n```\n\n**Note on Shared In-Memory Databases:**\nIf you require multiple connections to share the same in-memory data, you cannot simply use `\":memory:\"` for all of them. Instead, you must use the URI mode with the `file:` scheme and the `mode=memory` parameter combined with `cache=shared`. For example:\n```python\ndb = \"file:mem1?mode=memory&cache=shared\"\ncon1 = sqlite3.connect(db, uri=True)\ncon2 = sqlite3.connect(db, uri=True)\n# Both con1 and con2 now access the same in-memory database 'mem1'\n```",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 3.4372847080230713,
-          "prompt_tokens": 2097,
-          "completion_tokens": 428,
-          "cost": 0.00024758500000000004
-        },
-        {
-          "id": "Q5",
-          "question": "What is the default placeholder style used for parameters in sqlite3?",
-          "answer": "Based on the provided documentation, there is **no single default placeholder style** mandated for all operations in the `sqlite3` module. Instead, the module supports two distinct styles of placeholders, and the choice depends entirely on how the SQL statement is constructed and how parameters are passed to methods like `execute()` or `executemany()`.\n\nThe two supported placeholder styles are:\n\n1.  **qmark style (Question Marks)**\n    *   **Syntax**: Uses question marks (`?`) as placeholders within the SQL string.\n    *   **Parameter Requirement**: The `parameters` argument must be a **sequence** (such as a `tuple` or `list`).\n    *   **Constraint**: The length of the sequence must exactly match the number of placeholders in the SQL statement. If the lengths do not match, a `ProgrammingError` is raised.\n    *   **Usage Example**:\n        ```python\n        params = (1972,)\n        cur.execute(\"SELECT * FROM lang WHERE first_appeared = ?\", params)\n        ```\n\n2.  **named style (Named Placeholders)**\n    *   **Syntax**: Uses named placeholders prefixed with a colon (e.g., `:name`, `:year`).\n    *   **Parameter Requirement**: The `parameters` argument must be an instance of a **`dict`** (or a subclass).\n    *   **Constraint**: The dictionary must contain keys corresponding to all named parameters in the SQL statement. Any extra items in the dictionary are ignored.\n    *   **Usage Example**:\n        ```python\n        data = [\n            {\"name\": \"C\", \"year\": 1972},\n            {\"name\": \"Fortran\", \"year\": 1957}\n        ]\n        cur.executemany(\"INSERT INTO lang VALUES(:name, :year)\", data)\n        ```\n\n### Important Technical Constraints and Notes\n\n*   **Numeric Placeholders**: The module does **not** support numeric placeholders (e.g., `%s` or `$1`) as defined by PEP 249. If such placeholders are used, they will be interpreted as **named placeholders**.\n*   **Type Mismatch Errors**:\n    *   If **named placeholders** are used but the `parameters` argument is a sequence (like a tuple or list) instead of a `dict`, a `ProgrammingError` is raised. This behavior was explicitly noted as being enforced starting in Python 3.14.\n    *   If **qmark placeholders** are used, the `parameters` must be a sequence; passing a dictionary will result in an error because the types do not align with the expected binding mechanism.\n*   **Security**: The documentation strongly advises against using Python's string formatting (e.g., `%` operator or f-strings) to assemble queries due to SQL injection risks. Parameter substitution using either of the two placeholder styles above is the required secure method for inserting variables into queries.\n\nIn summary, you must explicitly choose the style that matches your parameter structure: use **sequences** with **`?`** (qmark) or **dictionaries** with **`:name`** (named). The system does not automatically infer a default style based on the input type without prior knowledge of the SQL syntax used.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 4.64858341217041,
-          "prompt_tokens": 2106,
-          "completion_tokens": 691,
-          "cost": 0.00031654999999999997
-        },
-        {
-          "id": "Q6",
-          "question": "What prefix or syntax marks named placeholders in SQL statements?",
-          "answer": "Based on the provided documentation, named placeholders in SQL statements are marked using a **colon (`:`)** prefix.\n\nHere are the specific technical details regarding their usage:\n\n*   **Syntax Mark**: The colon character (`:`) serves as the indicator for named placeholders within the SQL string.\n*   **Parameter Requirement**: When using named placeholders (named style), the `parameters` argument passed to the cursor's `execute()` method must be a **dictionary** (`dict`).\n    *   If a sequence (such as a tuple or list) is provided instead of a dictionary when named placeholders are used, a `ProgrammingError` is raised.\n    *   The keys in this dictionary correspond to the names defined after the colons in the SQL statement.\n*   **Contrast with Other Styles**: This differs from the \"qmark\" style, which uses question marks (`?`) and requires the `parameters` argument to be a sequence where the length matches the number of placeholders.\n*   **Numeric Placeholders**: The documentation explicitly notes that numeric placeholders (e.g., `1`, `2`) are **not supported**. If they are used, they will be misinterpreted as named placeholders rather than positional ones.\n\n**Example Usage Context:**\nTo bind values safely and avoid SQL injection attacks, you should construct your query with named placeholders like `:name` and pass a dictionary containing the key-value pairs to the `execute` method, rather than using Python string formatting.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.6193573474884033,
-          "prompt_tokens": 1674,
-          "completion_tokens": 302,
-          "cost": 0.00018732999999999998
-        },
-        {
-          "id": "Q7",
-          "question": "What object does Connection.execute() return?",
-          "answer": "Based on the provided documentation, the `Connection.execute()` method returns a **`Cursor` object**.\n\nHere are the specific technical details regarding this behavior:\n\n*   **Implicit Creation**: When using `execute()`, `executemany()`, or `executescript()` directly on a `Connection` object, the corresponding `Cursor` objects are created implicitly. This allows for more concise code without the need to explicitly instantiate a `Cursor` first.\n*   **Return Value Usage**: The returned `Cursor` object can be used immediately. For example, if a `SELECT` statement is executed, the resulting cursor can be iterated over directly in a loop to access the rows.\n*   **Shortcut Method Context**: These methods are referred to as \"connection shortcut methods\" because they bypass the explicit creation step (e.g., `con.cursor().execute(...)`), returning the cursor instance so it can be chained or assigned to a variable.\n*   **Transaction Behavior**: If the `Connection` object is used as a context manager (via a `with` statement), the transaction associated with the cursor's operations will be automatically committed if the block completes without exceptions, or rolled back if an exception occurs. However, the `close()` method must still be called manually on the connection object; the context manager only handles transaction commit/rollback logic.\n\n**Example Workflow:**\n```python\n# execute() creates and returns a Cursor object\ncursor = con.execute(\"SELECT name, first_appeared FROM lang\")\n\n# The returned cursor can be iterated over directly\nfor row in cursor:\n    print(row)\n```",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.9274075031280518,
-          "prompt_tokens": 1883,
-          "completion_tokens": 334,
-          "cost": 0.000209235
-        },
-        {
-          "id": "Q8",
-          "question": "Which Connection method executes a script containing multiple SQL statements at once?",
-          "answer": "The `Connection` method used to execute a script containing multiple SQL statements at once is **`executescript(sql_script)`**.\n\nHere are the specific technical details regarding its behavior and configuration:\n\n*   **Functionality**: This method executes all SQL statements contained within the provided `sql_script` string.\n*   **Transaction Handling**:\n    *   If the connection's `autocommit` attribute is set to `LEGACY_TRANSACTION_CONTROL` and there is a pending transaction, an implicit `COMMIT` statement is executed immediately before running the script.\n    *   The method implicitly commits any pending transaction before execution, regardless of the value of the `isolation_level` attribute.\n*   **Error Handling**: If the script contains named placeholders (e.g., `:name`) and the parameters are passed as a sequence instead of a dictionary, a `ProgrammingError` exception is raised.\n*   **Usage Context**: Unlike standard methods like `execute()`, which typically handle single statements, `executescript()` is specifically designed for executing multiple statements in one call. Note that while the `Connection` object can be used as a context manager to automatically commit or rollback transactions based on exceptions, `executescript()` handles its own transactional boundaries internally by committing prior to execution if necessary.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.50044584274292,
-          "prompt_tokens": 1570,
-          "completion_tokens": 266,
-          "cost": 0.00017120999999999998
-        },
-        {
-          "id": "Q9",
-          "question": "Which Cursor method executes the same statement repeatedly for a sequence of parameter sets?",
-          "answer": "The Cursor method that executes the same statement repeatedly for a sequence of parameter sets is **`executemany(sql, parameters)`**.\n\nAccording to the documentation, this method performs the following operations:\n*   **Functionality**: It repeatedly executes the provided parameterized Data Manipulation Language (DML) SQL statement (`sql`) for every item found in the `parameters` argument.\n*   **Transaction Handling**: It utilizes the same implicit transaction handling mechanism as the standard `execute()` method.\n*   **Parameter Requirements**:\n    *   The `sql` argument must be a single SQL DML statement. If it contains more than one SQL statement or is not a DML statement, a `ProgrammingError` is raised.\n    *   The `parameters` argument must be an iterable containing multiple sets of values.\n    *   **Placeholder Style Constraints**:\n        *   If using **qmark style** placeholders (question marks), the items within the `parameters` iterable must be sequences (e.g., tuples or lists) where the length matches the number of placeholders.\n        *   If using **named style** placeholders, the items within the `parameters` iterable must be instances of a `dict` (or subclass). If named placeholders are used and the items in `parameters` are sequences instead of dictionaries, a `ProgrammingError` is emitted.\n*   **Return Value**: The method returns the new cursor object on which the operation was performed.\n\nThis method is distinct from `executescript()`, which is designed to execute multiple SQL statements in a script rather than repeating a single parameterized statement with different data sets.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.725139856338501,
-          "prompt_tokens": 1751,
-          "completion_tokens": 337,
-          "cost": 0.000201435
-        },
-        {
-          "id": "Q10",
-          "question": "What is the base exception class defined by the sqlite3 module?",
-          "answer": "Based on the documentation provided, the base exception class defined by the `sqlite3` module is **`Error`**.\n\nHere are the specific technical details regarding the exception hierarchy and behavior:\n\n*   **Base Class**: `Error` serves as the root of the exception hierarchy for this module. It is explicitly described as \"The base class of the other exceptions in this module.\"\n*   **Usage**: Because it is the parent class for all database-related errors, it is recommended to use `Error` when you need to catch all possible errors with a single `except` statement.\n*   **Inheritance Hierarchy**:\n    *   `Error` is a subclass of the standard Python `Exception`.\n    *   `InterfaceError` is a direct subclass of `Error`. It is raised for misuse of the low-level SQLite C API (indicating a potential bug in the module).\n    *   `DatabaseError` is also a subclass of `Error`. It acts as the base for several specialized database error types but is only raised implicitly through its subclasses.\n    *   Specialized subclasses of `DatabaseError` include:\n        *   `IntegrityError`: Raised when relational integrity is affected (e.g., foreign key checks fail).\n        *   `ProgrammingError`: Raised for API programming errors, such as supplying the wrong number of bindings or operating on a closed connection.\n        *   `NotSupportedError`: Raised when a method or API feature is not supported by the underlying SQLite library (e.g., setting `deterministic=True` in `create_function` if unsupported).\n*   **Other Exceptions**:\n    *   `Warning`: This is a subclass of `Exception` (not `Error`). While not currently raised by the module itself, it may be raised by applications using `sqlite3`, such as when a user-defined function truncates data during insertion.\n\nThis structure ensures that developers can catch broad issues using `except sqlite3.Error:` or target specific failure modes like `IntegrityError` or `ProgrammingError` individually.",
-          "correct": true,
-          "retr_hit": false,
-          "latency": 3.5155539512634277,
-          "prompt_tokens": 1647,
-          "completion_tokens": 424,
-          "cost": 0.000217295
-        },
-        {
-          "id": "Q11",
-          "question": "What exception is raised when a database operation fails because the database is locked?",
-          "answer": "Based on the provided documentation, when a database operation fails because the database is locked, an **`OperationalError`** exception is raised.\n\nThis behavior is governed by the `timeout` parameter in the `sqlite3.connect()` function:\n\n*   **Parameter Name**: `timeout`\n*   **Default Value**: 5 seconds\n*   **Functionality**: This parameter specifies how many seconds the connection should wait before raising the `OperationalError` if a table is locked.\n*   **Trigger Condition**: The error occurs when another connection has opened a transaction to modify a table, thereby locking it until that transaction is committed. If the waiting period exceeds the specified `timeout` duration, the `OperationalError` is triggered.\n\nThe documentation notes that this exception falls under the broader category of `DatabaseError`, which serves as the base exception for errors related to the database.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 1.5990605354309082,
-          "prompt_tokens": 1609,
-          "completion_tokens": 182,
-          "cost": 0.000151905
-        },
-        {
-          "id": "Q12",
-          "question": "Which row factory returns rows that can be accessed by column name?",
-          "answer": "Based on the provided documentation, there are three primary methods to configure a row factory that allows rows to be accessed by column name:\n\n### 1. Using `sqlite3.Row` (Recommended)\nThe most efficient built-in option is the **`sqlite3.Row`** class. It serves as a highly optimized row factory that supports iteration, equality testing, `len()`, and mapping access by both column name and index.\n\n*   **Configuration**: Assign the class directly to the `row_factory` attribute of the connection object.\n    ```python\n    con.row_factory = sqlite3.Row\n    ```\n*   **Access Methods**:\n    *   **By Name**: Case-insensitive access using string keys (e.g., `row[\"name\"]`).\n    *   **By Index**: Standard integer indexing (e.g., `row[0]`).\n    *   **Keys**: The `.keys()` method returns a list of column names.\n*   **Performance**: It provides named access with minimal memory overhead and performance impact compared to standard tuples.\n\n### 2. Custom Dictionary Factory\nYou can define a custom callable function to return each row as a standard Python **`dict`**, where column names map directly to values.\n\n*   **Implementation**: Create a function that accepts a `cursor` and a `row` tuple. Extract field names from `cursor.description` and zip them with the row values.\n    ```python\n    def dict_factory(cursor, row):\n        fields = [column[0] for column in cursor.description]\n        return {key: value for key, value in zip(fields, row)}\n    ```\n*   **Configuration**: Assign this function to `con.row_factory`.\n    ```python\n    con.row_factory = dict_factory\n    ```\n*   **Result**: Queries return dictionaries (e.g., `{'a': 1, 'b': 2}`), allowing access via `row['a']`.\n\n### 3. Custom Named Tuple Factory\nYou can use the `collections.namedtuple` module to create a custom class for each row, providing attribute-style access by column name.\n\n*   **Implementation**: Define a factory function that dynamically creates a namedtuple class based on the column names retrieved from `cursor.description`.\n    ```python\n    from collections import namedtuple\n\n    def namedtuple_factory(cursor, row):\n        fields = [column[0] for column in cursor.description]\n        cls = namedtuple(\"Row\", fields)\n        return cls._make(row)\n    ```\n*   **Configuration**: Assign this function to `con.row_factory`.\n    ```python\n    con.row_factory = namedtuple_factory\n    ```\n*   **Result**: Rows are returned as named tuple instances (e.g., `Row(a=1, b=2)`). These support both indexed access (`row[0]`) and attribute access (`row.a`).\n\n### General Configuration Details\n*   **Scope**: While `row_factory` exists as an attribute on both `Connection` and `Cursor` objects, it is recommended to set it on the **`Connection`** object. This ensures all cursors created from that connection utilize the same row factory.\n*   **Default Behavior**: If `row_factory` is set to `None` (the default), rows are returned as standard **`tuple`** objects, which only support integer indexing and do not allow access by column name.\n*   **Callable Signature**: Any custom row factory must be a callable that accepts two arguments:\n    1.  A **`Cursor`** object.\n    2.  A **`tuple`** of row values.\n    It must return a custom object representing the SQLite row.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 5.273086309432983,
-          "prompt_tokens": 1989,
-          "completion_tokens": 775,
-          "cost": 0.000330785
-        },
-        {
-          "id": "Q13",
-          "question": "Which Connection attribute reports the total number of rows modified, inserted, or deleted?",
-          "answer": "The `Connection` object in the `sqlite3` module provides a read-only attribute named **`total_changes`** that reports the total number of database rows that have been modified, inserted, or deleted since the database connection was opened.\n\nThis attribute accumulates changes across all operations performed on the connection and is updated automatically by the underlying SQLite library. It serves as a cumulative counter for the entire lifespan of the connection, unlike other attributes such as `rowcount`, which only reflects the number of rows affected by the most recent `execute` or `executemany` statement.\n\nKey technical details regarding this attribute include:\n*   **Attribute Name**: `total_changes`\n*   **Object Type**: `Connection`\n*   **Return Value**: An integer representing the cumulative count of rows affected (modified, inserted, or deleted).\n*   **Scope**: The count resets only when the connection is closed and reopened; it persists across multiple SQL statements within the same session.\n*   **Behavior**: This value includes changes from `INSERT`, `UPDATE`, `DELETE`, and `REPLACE` statements. It does not reset after individual transactions unless the connection itself is closed.\n\nFor example, if a sequence of operations inserts 5 rows, updates 2 rows, and deletes 1 row during a single connection session, the `total_changes` attribute will return `8`.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.606290817260742,
-          "prompt_tokens": 1600,
-          "completion_tokens": 283,
-          "cost": 0.00017758
-        },
-        {
-          "id": "Q14",
-          "question": "Which sqlite3 module function registers a callable that adapts a Python object to an SQLite value?",
-          "answer": "The function used to register a callable that adapts a Python object to an SQLite-compatible value is **`register_adapter`**.\n\nThis function is part of the `sqlite3` module and allows you to extend the type system by defining how custom Python types should be converted before being stored in the database.\n\n### Function Signature\n```python\nregister_adapter(type, adapter, /)\n```\n\n### Parameters\n*   **`type`**: The specific Python class (or type) that you wish to adapt. This is the type of the Python object that will be passed to the adapter function.\n*   **`adapter`**: A **callable** (function or method) that performs the conversion.\n    *   It must accept a single argument: a Python object of the specified *type*.\n    *   It must return a value of a type that SQLite natively understands (such as `str`, `int`, `float`, or `bytes`).\n\n### How It Works\nWhen a query is executed using placeholders (e.g., `?`), if the parameter provided is an instance of the registered *type*, the `sqlite3` module automatically invokes the registered *adapter* callable. The result returned by this callable is then used as the actual value sent to SQLite.\n\nIf both a custom `__conform__` method on the object and a registered adapter exist for the same type, the **registered adapter takes precedence**.\n\n### Usage Example\nTo adapt a custom `Point` class containing coordinates into a string format compatible with SQLite:\n\n1.  Define the custom class:\n    ```python\n    class Point:\n        def __init__(self, x, y):\n            self.x, self.y = x, y\n    ```\n\n2.  Define the adapter function:\n    ```python\n    def adapt_point(point):\n        # Converts the Point object to a string \"x;y\"\n        return f\"{point.x};{point.y}\"\n    ```\n\n3.  Register the adapter:\n    ```python\n    import sqlite3\n    sqlite3.register_adapter(Point, adapt_point)\n    ```\n\n4.  Use it in a query:\n    ```python\n    con = sqlite3.connect(\":memory:\")\n    cur = con.cursor()\n    \n    # The Point object is automatically adapted to \"1.0;2.5\" before execution\n    cur.execute(\"SELECT ?\", (Point(1.0, 2.5),))\n    print(cur.fetchone()[0])  # Output: 1.0;2.5\n    \n    con.close()\n    ```\n\n### Related Configuration\nWhile `register_adapter` handles the conversion from Python to SQLite, the complementary function **`register_converter`** is used to handle the reverse process (converting SQLite values back to custom Python types). Additionally, the `detect_types` parameter in the `connect()` function controls whether converters are active during data retrieval.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 4.341174125671387,
-          "prompt_tokens": 1824,
-          "completion_tokens": 610,
-          "cost": 0.00027716000000000004
-        },
-        {
-          "id": "Q15",
-          "question": "Which sqlite3 module function registers a callable that converts SQLite values into custom Python types?",
-          "answer": "The function used to register a callable that converts SQLite values into custom Python types is **`register_converter`**.\n\nThis function is part of the `sqlite3` module's extensible type system, which allows users to define how data retrieved from the database should be transformed before being returned to Python.\n\n### Function Signature and Parameters\nThe function signature is:\n```python\nregister_converter(typename, converter, /)\n```\n\n*   **`typename`**: A string representing the SQLite type name (e.g., `\"INTEGER\"`, `\"TEXT\"`, or a custom type name declared in the SQL schema). This tells the module which SQLite column types should trigger the conversion logic.\n*   **`converter`**: A callable (function) that performs the actual conversion. It must accept a single argument: a **`bytes`** object containing the raw value from the SQLite database. The function must return an object of the desired custom Python type.\n\n### How It Works\n1.  **Registration**: You call `register_converter` with the target SQLite type name and your custom conversion function.\n2.  **Invocation**: When a query is executed and the result set contains columns matching the registered `typename`, the `sqlite3` module automatically invokes the registered `converter` function for every row in that column.\n3.  **Input/Output**: The converter receives the raw data as a `bytes` object (regardless of whether the underlying storage was text or binary) and returns the final Python object.\n\n### Usage Context\nTo utilize converters effectively, you typically need to enable type detection when establishing a connection. This is done by passing the **`PARSE_DECLTYPES`** flag to the `detect_types` parameter of the **`connect()`** function.\n\nExample workflow:\n1.  Define a custom class (e.g., a `Point` class).\n2.  Register a converter using `register_converter(\"POINT\", my_point_converter)`.\n3.  Connect to the database with `detect_types=sqlite3.PARSE_DECLTYPES`.\n4.  Create a table with a column explicitly typed as `POINT` (or whatever typename you registered).\n5.  Execute a `SELECT` query; the results for that column will automatically be converted to instances of your custom class.\n\nThis mechanism complements **`register_adapter`**, which handles the reverse process (converting custom Python objects *into* SQLite-compatible types for insertion), allowing for a bidirectional mapping between complex Python objects and the database.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 4.17236328125,
-          "prompt_tokens": 2100,
-          "completion_tokens": 518,
-          "cost": 0.00027118
-        },
-        {
-          "id": "Q16",
-          "question": "Which parameter of sqlite3.connect() enables detection of declared column types?",
-          "answer": "The parameter of `sqlite3.connect()` that enables the detection of declared column types is **`detect_types`**.\n\nTo specifically enable the lookup of converter functions based on the types declared when a database table was created, you must pass the constant **`sqlite3.PARSE_DECLTYPES`** as the value for this parameter.\n\n### Technical Details and Configuration\n\n*   **Parameter Name**: `detect_types`\n*   **Required Value**: `sqlite3.PARSE_DECLTYPES`\n*   **Functionality**: When this flag is set, the module looks up a converter function using the first word of the declared type in the SQL schema (e.g., if a column is defined as `INTEGER`, it looks for a converter registered under the key \"integer\").\n*   **Matching Behavior**: The matching between the *typename* in the converter dictionary and the name of the type in your query is performed **case-insensitively**.\n*   **Converter Registration**: To make this work, you must register a converter function using `sqlite3.register_converter(typename, converter)`. The converter function accepts a `bytes` object and returns an object of the desired Python type.\n\n### Usage Examples\n\n**1. Implicit Detection (Declared Types)**\nYou can create a connection with implicit detection by setting `detect_types=sqlite3.PARSE_DECLTYPES`:\n\n```python\nimport sqlite3\n\n# Define a custom type and conversion logic\nclass Point:\n    def __init__(self, x, y):\n        self.x, self.y = x, y\n\ndef adapt_point(point):\n    return f\"{point.x};{point.y}\"\n\ndef convert_point(s):\n    x, y = list(map(float, s.split(b\";\")))\n    return Point(x, y)\n\n# Register the adapter and converter\nsqlite3.register_adapter(Point, adapt_point)\nsqlite3.register_converter(\"point\", convert_point)\n\n# Connect with PARSE_DECLTYPES enabled\ncon = sqlite3.connect(\":memory:\", detect_types=sqlite3.PARSE_DECLTYPES)\ncur = con.execute(\"CREATE TABLE test(p point)\") # 'point' is the declared type\n\np = Point(4.0, -3.2)\ncur.execute(\"INSERT INTO test(p) VALUES(?)\", (p,))\ncur.execute(\"SELECT p FROM test\")\nresult = cur.fetchone()[0] # Returns a Point object automatically\nprint(result)\n```\n\n**2. Alternative Options**\nThe `detect_types` parameter supports three configuration modes:\n*   **Implicit**: Set to `sqlite3.PARSE_DECLTYPES` (uses declared types from `CREATE TABLE`).\n*   **Explicit**: Set to `sqlite3.PARSE_COLNAMES` (uses aliases in the SELECT statement, e.g., `SELECT p AS \"p [point]\"`).\n*   **Both**: Set to `sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES`. In this mode, column names take precedence over declared types.\n\nIf `detect_types` is not provided or set to `0`, no automatic type conversion occurs beyond the default SQLite-to-Python mappings (e.g., `NULL` to `None`, `INTEGER` to `int`, etc.).",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 5.322111129760742,
-          "prompt_tokens": 1860,
-          "completion_tokens": 667,
-          "cost": 0.00029432
-        },
-        {
-          "id": "Q17",
-          "question": "Which Connection attribute controls whether the connection may be used from other threads?",
-          "answer": "The Connection attribute that controls whether the connection may be used from other threads is **`check_same_thread`**.\n\nThis parameter is passed to the :func:`sqlite3.connect` function when establishing a database connection. It accepts a boolean value with the following behaviors:\n\n*   **`True` (Default)**: If set to `True`, the library enforces thread safety by raising an :exc:`ProgrammingError` if the database connection is accessed by any thread other than the one that created it. This ensures that connections are not shared across threads unless explicitly managed by the application.\n*   **`False`**: If set to `False`, the connection may be accessed from multiple threads simultaneously. However, this disables the internal safety checks, and the user must manually serialize write operations to prevent data corruption.\n\nThe behavior of this setting interacts with SQLite's compilation modes regarding threading safety:\n*   In **single-thread** mode, threads cannot share the module at all.\n*   In **multi-thread** mode, threads may share the module but not connections (unless `check_same_thread` is disabled).\n*   In **serialized** mode, SQLite can be safely used by multiple threads without restriction, though the Python DB-API 2.0 interface still defaults to checking thread ownership via `check_same_thread`.\n\nAdditionally, the global :attr:`threadsafety` attribute indicates the threading level supported by the specific SQLite build (values 0, 1, or 2), which informs how `check_same_thread` should be configured for safe concurrent access.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.632115602493286,
-          "prompt_tokens": 1668,
-          "completion_tokens": 318,
-          "cost": 0.00019109999999999998
-        },
-        {
-          "id": "Q18",
-          "question": "What language construct does the documentation recommend for managing connections and transactions?",
-          "answer": "Based on the provided documentation, the recommended language construct for managing connections and transactions in the `sqlite3` module is the **context manager** (utilizing the `with` statement).\n\n### The Context Manager Approach\nThe documentation explicitly recommends using the context manager to ensure that transactions are handled correctly. When a connection object is used within a `with` block:\n*   **Automatic Commit:** If the body of the `with` statement finishes without raising an exception, the transaction is automatically committed via `con.commit()`.\n*   **Automatic Rollback:** If an exception occurs inside the `with` block, the transaction is automatically rolled back via `con.rollback()`. The original exception is still raised after the rollback, allowing it to be caught by surrounding `try...except` blocks.\n*   **No-Op Conditions:** If there is no open transaction upon leaving the `with` block, or if the connection's `autocommit` attribute is set to `True`, the context manager performs no action.\n\n**Example Usage:**\n```python\ncon = sqlite3.connect(\":memory:\")\ncon.execute(\"CREATE TABLE lang(id INTEGER PRIMARY KEY, name VARCHAR UNIQUE)\")\n\n# Successful execution triggers automatic commit\nwith con:\n    con.execute(\"INSERT INTO lang(name) VALUES(?)\", (\"Python\",))\n\n# Exception handling triggers automatic rollback\ntry:\n    with con:\n        # Code that might raise an exception\n        pass\nexcept Exception as e:\n    # The exception is re-raised after rollback\n    pass\n```\n\n### Transaction Control Configuration\nWhile the context manager is the primary recommendation for flow control, the behavior depends on specific configuration settings regarding transaction isolation:\n\n1.  **`autocommit` Attribute**:\n    *   This attribute controls whether implicit transaction management is active.\n    *   If `autocommit` is `False` (the default in future Python releases, though currently defaults to `LEGACY_TRANSACTION_CONTROL`), new transactions are implicitly opened before executing `INSERT`, `UPDATE`, `DELETE`, or `REPLACE` statements.\n    *   If `autocommit` is `True` or set to `LEGACY_TRANSACTION_CONTROL`, no implicit transaction control is executed. In this mode, you must manually call `commit()` before closing the connection to avoid losing pending changes.\n\n2.  **`isolation_level` Parameter**:\n    *   Passed during connection creation via `sqlite3.connect()`.\n    *   Valid values include `\"DEFERRED\"`, `\"IMMEDIATE\"`, or `\"EXCLUSIVE\"`, which correspond to underlying SQLite transaction behaviors.\n    *   If not overridden, the default is `\"\"` (an alias for `\"DEFERRED\"`).\n    *   If `isolation_level` is not `None`, implicit transactions are managed as described above. Otherwise, `isolation_level` has no effect.\n\n### Alternative Methods\nAlthough the context manager is preferred, the documentation notes alternative methods for manual control:\n*   **Shortcut Methods**: The connection object provides shortcut methods like `execute()`, `executemany()`, and `commit()`.\n*   **Manual Management**: Developers can manually invoke `con.commit()` or `con.rollback()` outside of a context manager, but this requires careful error handling to ensure data integrity.\n\nIn summary, the documentation advocates for the **`with` statement** combined with the **`Connection` object** to safely manage database transactions, relying on the `autocommit` setting to determine whether implicit transaction boundaries are established.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 5.532426357269287,
-          "prompt_tokens": 1813,
-          "completion_tokens": 734,
-          "cost": 0.000308685
-        },
-        {
-          "id": "Q19",
-          "question": "Which Cursor attribute holds the row id of the last inserted row?",
-          "answer": "The Cursor attribute that holds the row id of the last inserted row is **`lastrowid`**.\n\nHere are the specific technical details regarding this attribute based on the documentation:\n\n*   **Type**: It is a read-only attribute.\n*   **Functionality**: It provides the row ID of the most recently inserted row.\n*   **Update Conditions**: The value is only updated after successful execution of `INSERT` or `REPLACE` statements using the :meth:`execute` method.\n*   **Behavior with SELECT**: If a `SELECT` statement returns no matching rows, the `lastrowid` attribute remains unchanged (it does not reset to zero or null; it simply retains its previous value or reflects the state prior to the query).\n*   **Usage Context**: This attribute is accessed directly from the `Cursor` object instance after an insertion operation has been performed.\n\nExample usage pattern:\n```python\ncursor.execute(\"INSERT INTO data VALUES(1)\")\nprint(cursor.lastrowid)  # Outputs the row ID of the inserted row\n```",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 2.1693129539489746,
-          "prompt_tokens": 1770,
-          "completion_tokens": 220,
-          "cost": 0.00017225
-        },
-        {
-          "id": "Q20",
-          "question": "Which Connection attribute controls autocommit behavior?",
-          "answer": "The **`autocommit`** attribute of the `Connection` object controls autocommit behavior in the `sqlite3` module.\n\n### Key Technical Details:\n\n- **Attribute Name**: `autocommit`\n- **Type**: Boolean or a special constant (`LEGACY_TRANSACTION_CONTROL`)\n- **Default Value**: `LEGACY_TRANSACTION_CONTROL` (which behaves as if `autocommit=False` in legacy mode)\n- **Future Behavior**: The default is scheduled to change to `False` in a future Python release.\n\n### Behavior Based on `autocommit`:\n\n1. **When `autocommit` is `True`**:\n   - Each SQL statement is executed in its own transaction.\n   - No implicit transactions are opened.\n   - Explicit calls to `commit()` or `rollback()` have no effect unless there is an active transaction.\n\n2. **When `autocommit` is `False`**:\n   - Transactions must be explicitly managed using `commit()` and `rollback()`.\n   - Implicit transactions may be opened before certain statements (e.g., `INSERT`, `UPDATE`, `DELETE`, `REPLACE`) depending on the `isolation_level`.\n\n3. **When `autocommit` is set to `LEGACY_TRANSACTION_CONTROL`** (default):\n   - Legacy transaction control behavior is used.\n   - The `isolation_level` attribute becomes relevant for controlling implicit transaction opening.\n   - If `isolation_level` is not `None`, new transactions are implicitly opened before DML statements (`INSERT`, `UPDATE`, `DELETE`, `REPLACE`).\n\n### Interaction with Other Attributes:\n\n- **`isolation_level`**:\n  - Only has an effect when `autocommit` is set to `LEGACY_TRANSACTION_CONTROL`.\n  - Acceptable values: `\"DEFERRED\"` (default), `\"IMMEDIATE\"`, `\"EXCLUSIVE\"`, or `None`.\n  - Setting it to `None` disables implicit transaction management entirely.\n\n- **`in_transaction`**:\n  - A read-only boolean attribute indicating whether a transaction is currently active.\n  - Returns `True` if there are uncommitted changes; otherwise, `False`.\n\n### Usage Example:\n\n```python\nimport sqlite3\n\nconn = sqlite3.connect(\"example.db\")\nconn.autocommit = True  # Enable autocommit mode\n\ncursor = conn.cursor()\ncursor.execute(\"CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT)\")\n# Each statement above runs in its own transaction\n```\n\n### Context Manager Support:\n\nWhen using the connection as a context manager (`with sqlite3.connect(...) as conn:`), the transaction is automatically committed if no exceptions occur, or rolled back if an exception is raised. This behavior is independent of the `autocommit` setting but complements explicit transaction control.\n\n### Summary:\n\nTo control autocommit behavior explicitly, set the `autocommit` attribute of the `Connection` object to either `True`, `False`, or `LEGACY_TRANSACTION_CONTROL`. This setting determines how transactions are initiated, managed, and finalized during database operations.",
-          "correct": true,
-          "retr_hit": true,
-          "latency": 4.935182571411133,
-          "prompt_tokens": 1596,
-          "completion_tokens": 655,
-          "cost": 0.00027404
+          "latency": 8.081669092178345,
+          "prompt_tokens": 917,
+          "completion_tokens": 126,
+          "cost": 9.2365e-05
         }
       ]
     }
@@ -1362,64 +1057,60 @@
   "summary": [
     {
       "system": "rag-kit (terse sync, local)",
-      "accuracy": 19,
-      "total": 20,
-      "retrieval_hit": 19,
-      "avg_latency": 0.99,
-      "avg_prompt_tokens": 1565,
-      "avg_completion_tokens": 68,
-      "avg_cost": 0.00011947
+      "build_s": 7.006748914718628,
+      "n": 20,
+      "correct": 19,
+      "accuracy": 0.95,
+      "retr_hits": 19,
+      "retr_rate": 0.95,
+      "avg_latency": 1.1231744647026063,
+      "avg_prompt_tok": 1769.85,
+      "avg_completion_tok": 77.45,
+      "avg_cost": 0.00013517725000000003,
+      "total_cost": 0.0027035450000000008
     },
     {
       "system": "rag-kit (terse async, local)",
-      "accuracy": 19,
-      "total": 20,
-      "retrieval_hit": 19,
-      "avg_latency": 1.18,
-      "avg_prompt_tokens": 1565,
-      "avg_completion_tokens": 71,
-      "avg_cost": 0.00012015
+      "build_s": 4.603622913360596,
+      "n": 20,
+      "correct": 19,
+      "accuracy": 0.95,
+      "retr_hits": 19,
+      "retr_rate": 0.95,
+      "avg_latency": 1.4751287698745728,
+      "avg_prompt_tok": 1769.85,
+      "avg_completion_tok": 75.5,
+      "avg_cost": 0.00013467025000000007,
+      "total_cost": 0.002693405000000001
     },
     {
       "system": "LlamaIndex (k=2)",
-      "accuracy": 16,
-      "total": 20,
-      "retrieval_hit": 16,
-      "avg_latency": 1.02,
-      "avg_prompt_tokens": 1941,
-      "avg_completion_tokens": 48,
-      "avg_cost": 0.00013867
+      "build_s": 1.3244822025299072,
+      "n": 20,
+      "correct": 16,
+      "accuracy": 0.8,
+      "retr_hits": 16,
+      "retr_rate": 0.8,
+      "avg_latency": 0.8790651321411133,
+      "avg_prompt_tok": 1940.75,
+      "avg_completion_tok": 52.35,
+      "avg_cost": 0.00013975975000000003,
+      "total_cost": 0.0027951950000000003
     },
     {
       "system": "LlamaIndex (k=10)",
-      "accuracy": 18,
-      "total": 20,
-      "retrieval_hit": 19,
-      "avg_latency": 5.85,
-      "avg_prompt_tokens": 1175,
-      "avg_completion_tokens": 60,
-      "avg_cost": 9.186e-05
-    },
-    {
-      "system": "rag-kit (toc-first terse sync, local)",
-      "accuracy": 19,
-      "total": 20,
-      "retrieval_hit": 19,
-      "avg_latency": 3.6,
-      "avg_prompt_tokens": 1758,
-      "avg_completion_tokens": 460,
-      "avg_cost": 0.00023394
-    },
-    {
-      "system": "rag-kit (toc-first terse async, local)",
-      "accuracy": 20,
-      "total": 20,
-      "retrieval_hit": 19,
-      "avg_latency": 3.66,
-      "avg_prompt_tokens": 1758,
-      "avg_completion_tokens": 467,
-      "avg_cost": 0.00023575
+      "build_s": 1.1290879249572754,
+      "n": 20,
+      "correct": 18,
+      "accuracy": 0.9,
+      "retr_hits": 19,
+      "retr_rate": 0.95,
+      "avg_latency": 5.226186001300812,
+      "avg_prompt_tok": 1171.7,
+      "avg_completion_tok": 56.0,
+      "avg_cost": 9.072050000000002e-05,
+      "total_cost": 0.0018144100000000005
     }
   ],
-  "note": "merged 2026-08-26: standard+fusion (terse local), TOC-first (terse local), LlamaIndex k=2/k=10; reasoning disabled; local MiniLM both; Q6 accepts ':name' or 'colon'"
+  "markdown": "# RAG Head-to-Head: rag-kit vs LlamaIndex\n\n- **Corpus:** `sqlite3.txt` (identical bytes to both systems)\n- **Questions:** 20 factoid, ground-truth phrase verified in corpus\n- **LLM:** `qwen/qwen3.5-flash-02-23` (OpenRouter, temp 0.1) \u2014 same for both\n- **Embeddings:** `sentence-transformers/all-MiniLM-L6-v2` local (same for both)\n- **Scoring:** exact phrase match. No LLM judges.\n- **Live prices:** $0.065/M in, $0.260/M out (OpenRouter API)\n\n## Aggregate\n\n| System | Accuracy | Retrieval hit | Avg latency | Avg prompt tok | Avg comp tok | Avg cost | Total cost |\n|---|---|---|---|---|---|---|---|\n| rag-kit (terse sync, local) | 19/20 (95%) | 19/20 (95%) | 1.12s | 1770 | 77 | $0.000135 | $0.002704 |\n| rag-kit (terse async, local) | 19/20 (95%) | 19/20 (95%) | 1.48s | 1770 | 76 | $0.000135 | $0.002693 |\n| LlamaIndex (k=2) | 16/20 (80%) | 16/20 (80%) | 0.88s | 1941 | 52 | $0.000140 | $0.002795 |\n| LlamaIndex (k=10) | 18/20 (90%) | 19/20 (95%) | 5.23s | 1172 | 56 | $0.000091 | $0.001814 |\n\n## Per-question\n\n| # | Question | rag-kit (terse sync, local) | rag-kit (terse async, local) | LlamaIndex (k=2) | LlamaIndex (k=10) |\n|---|---|---|---|---|---|\n| Q1 | What is the name of the Python module documented here? | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q2 | Which version of the DB-API does the sqlite3 module implement? | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q3 | SQLite itself is written in what programming language? | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q4 | What special string do you pass to sqlite3.connect() to create an in-m | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q5 | What is the default placeholder style used for parameters in sqlite3? | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q6 | What prefix or syntax marks named placeholders in SQL statements? | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q7 | What object does Connection.execute() return? | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q8 | Which Connection method executes a script containing multiple SQL stat | \u2705 | \u2705 | \u274c | \u2705 |\n| Q9 | Which Cursor method executes the same statement repeatedly for a seque | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q10 | What is the base exception class defined by the sqlite3 module? | \u274c | \u274c | \u274c | \u274c(R) |\n| Q11 | What exception is raised when a database operation fails because the d | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q12 | Which row factory returns rows that can be accessed by column name? | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q13 | Which Connection attribute reports the total number of rows modified,  | \u2705 | \u2705 | \u274c | \u274c |\n| Q14 | Which sqlite3 module function registers a callable that adapts a Pytho | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q15 | Which sqlite3 module function registers a callable that converts SQLit | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q16 | Which parameter of sqlite3.connect() enables detection of declared col | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q17 | Which Connection attribute controls whether the connection may be used | \u2705 | \u2705 | \u274c | \u2705 |\n| Q18 | What language construct does the documentation recommend for managing  | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q19 | Which Cursor attribute holds the row id of the last inserted row? | \u2705 | \u2705 | \u2705 | \u2705 |\n| Q20 | Which Connection attribute controls autocommit behavior? | \u2705 | \u2705 | \u2705 | \u2705 |\n\n*(R) = retrieval found the answer context, but the synthesized answer missed it.*"
 }

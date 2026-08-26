@@ -13,18 +13,48 @@ against ground truth verified to exist in the corpus.
 
 | System | Accuracy | Retrieval hit | Avg latency | Avg prompt tok | Avg comp tok | Avg cost/query | Total |
 |---|---|---|---|---|---|---|---|
-| **rag-kit (terse, local)** | **19/20 (95%)** | **19/20 (95%)** | **1.0s** | 1,669 | 68 | $0.000119 | $0.0024 |
-| rag-kit (terse async, local) | 19/20 (95%) | 19/20 (95%) | 1.2s | 1,669 | 71 | $0.000120 | $0.0024 |
+| **rag-kit (terse, local)** | **19/20 (95%)** | **19/20 (95%)** | **1.1s** | 1,669 | 68 | $0.000135 | $0.0027 |
+| rag-kit (terse async, local) | 19/20 (95%) | 19/20 (95%) | 1.5s | 1,669 | 71 | $0.000135 | $0.0027 |
 | rag-kit (TOC-first, local) | 19/20 (95%) | 19/20 (95%) | 3.6s | 1,758 | 460 | $0.000234 | $0.0047 |
 | rag-kit (TOC-first async, local) | **20/20 (100%)** | 19/20 (95%) | 3.7s | 1,758 | 467 | $0.000236 | $0.0047 |
-| LlamaIndex (k=2) | 16/20 (80%) | 16/20 (80%) | 1.0s | 1,941 | 48 | $0.000139 | $0.0028 |
-| LlamaIndex (k=10) | 18/20 (90%) | 19/20 (95%) | 5.9s | 1,171 | 60 | $0.000092 | $0.0018 |
+| LlamaIndex (k=2) | 16/20 (80%) | 16/20 (80%) | 0.9s | 1,941 | 48 | $0.000140 | $0.0028 |
+| LlamaIndex (k=10) | 18/20 (90%) | 19/20 (95%) | 5.2s | 1,171 | 60 | $0.000091 | $0.0018 |
 
 > TOC-first rows use the navigation pipeline (`toc_first=True`): an LLM
 > router classifies the question, an LLM picks relevant TOC headings, and
 > search runs only inside those sections — extra LLM calls buy precision
 > (20/20 once) at 3.6× the latency and 2× the cost. The async run even
 > recovered Q10's strict-phrase miss via its longer synthesis.
+
+### Repeat queries: the learned index (query cache)
+
+Every query writes `(question → answer, citations)` to a per-document or
+per-namespace SQLite cache (update-on-every-search). A repeat or
+near-repeat question is served straight from the cache — no retrieval, no
+LLM call:
+
+| Pass | Latency | Correct |
+|---|---|---|
+| First query (full pipeline) | ~1.1s | 19/20 |
+| Repeat (cache hit) | **5.7ms avg** (3.7–9.4ms range) | 19/20 |
+
+Measured by re-asking all 20 questions after the first pass
+(`--repeat-q 20`): 20/20 served from cache, ~200× faster, identical
+answers (first answer wins per normalized question — the policy answer
+can't drift between sessions).
+
+Design notes:
+- **Exact-normalized match always** (case/punctuation-insensitive);
+  fuzzy near-repeat (rapidfuzz ≥ 0.90) is on by default and configurable
+  — set `cache_fuzzy=None` for exact-only in policy-critical deployments.
+- **Deliberately no semantic/embedding matching**: a "similar" question is
+  not the same question for policy (e.g. "can I get a refund" vs "can my
+  customer get a refund"). Fuzzy is conservative; doubt = full pipeline.
+- **Scoped by file/namespace** — answers never leak across documents.
+- `cache_top()` exposes the learned index: most-asked questions, hit
+  counts, last-asked time.
+- The cache sits in front of BOTH pipelines — a repeated policy question
+  is instant even in TOC-first (accuracy) mode.
 
 ### Embedding-fairness note (important)
 
@@ -90,6 +120,12 @@ collapsed from ~1,024 to 74 tokens/query for rag-kit; latency from ~11s to
 - **TOC-first mode** (`toc_first=True`) is the precision option for large
   manuals: LLM-routed heading navigation scored 19–20/20 (100% once) at
   3.6s — extra LLM calls, not for every query.
+- **Accuracy-first deployments** (policy chatbots, compliance, refund
+  decisions) should use TOC-first + cache: the wrong answer costs more
+  than a slow one, and once a policy answer is given it never changes —
+  every repeat is 5.7ms from the learned index.
+- **Repeat questions are ~200× faster than first asks** (5.7ms vs 1.1s)
+  thanks to the query cache — every search teaches the system.
 - **LlamaIndex k=2's speed is its accuracy loss** — 1.0s but 15 points
   behind, because 2 raw chunks produce thin answers (47 output tokens).
 - **Context efficiency:** rag-kit feeds 10 trimmed/reranked chunks in fewer
@@ -155,6 +191,10 @@ not sync/async.
 | LlamaIndex (default) | 1024 tokens, 20 overlap | Vector top-k=2 (library default) | top-2 nodes |
 | LlamaIndex (k=10) | same | Vector top-k=10 | top-10 nodes |
 
+All rag-kit rows include the query cache (on by default): first ask runs
+the pipeline shown; repeat asks hit `query_cache` (~5.7ms). Disable with
+`RAGSystem(use_cache=False)`, exact-only with `cache_fuzzy=None`.
+
 rag-kit runs its default pipeline (`RAGSystem.query` / `RAGSystem.aquery`);
 the terse variant is `rag.query(..., terse=True)` — a one-word API switch.
 LlamaIndex runs its default query engine (`VectorStoreIndex.as_query_engine()`)
@@ -170,6 +210,8 @@ python3 -m venv .venv
     sentence-transformers
 OPENROUTER_KEY=<your key> .venv/bin/python run_benchmark.py --terse --embed local  # canonical (fair, fast)
 OPENROUTER_KEY=<your key> .venv/bin/python run_benchmark.py --terse               # API embeddings (max accuracy)
+OPENROUTER_KEY=<your key> .venv/bin/python run_benchmark.py --terse --embed local --repeat-q 20  # + cache repeat pass
+OPENROUTER_KEY=<your key> .venv/bin/python run_benchmark.py --terse --embed local --toc-first    # navigation pipeline
 ```
 
 Output: markdown on stdout, machine-readable JSON in `results/latest.json`.
@@ -177,7 +219,8 @@ Output: markdown on stdout, machine-readable JSON in `results/latest.json`.
 Use `--only ragkit` / `--only llamaindex` to run one side, `--corpus <path>` to
 benchmark your own document, `--model <id>` to swap the LLM, `--embed api|local`
 to choose rag-kit's embedding backend, `--async-first` to check order effects,
-`--no-top-k-extra` to skip the k=10 run.
+`--no-top-k-extra` to skip the k=10 run, `--repeat-q N` to measure cache-hit
+latency on the first N questions.
 
 ## Why these numbers matter
 

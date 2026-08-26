@@ -22,6 +22,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    String,
     Text,
     create_engine,
     event,
@@ -110,6 +111,33 @@ class RAGChunk(Base):
     __table_args__ = (
         Index("idx_rag_chunks_file", file_id),
         Index("idx_rag_chunks_file_idx", file_id, chunk_index, unique=True),
+    )
+
+
+class QueryCache(Base):
+    """Stores past question → answer pairs for instant repeat queries.
+
+    Every query writes a row (update-on-every-search); a later repeat or
+    near-repeat question is served straight from here, skipping retrieval
+    and the LLM call. Scoped by file or namespace so answers never leak
+    across different documents.
+    """
+
+    __tablename__ = "query_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scope = Column(String(255), nullable=False)  # "file:<id>" or "ns:<name>"
+    qnorm = Column(Text, nullable=False)  # normalized question
+    question = Column(Text, nullable=False)  # original wording
+    answer = Column(Text, nullable=False)
+    citations = Column(Text, nullable=False)  # JSON list
+    hits = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, nullable=False)
+    last_hit_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_query_cache_scope", scope),
+        Index("idx_query_cache_scope_qnorm", scope, qnorm, unique=True),
     )
 
 
@@ -455,6 +483,140 @@ class Storage:
             rec.last_accessed = datetime.now(_UTC)
             db.commit()
             return rec.toc or ""
+
+    # ── Query Cache ──────────────────────────────────────────────────
+
+    def cache_lookup(
+        self, scope: str, qnorm: str, fuzzy_threshold: float | None = None
+    ) -> dict | None:
+        """Return a cached answer for a (scope, normalized question) pair.
+
+        Exact-normalized match is always checked first. When
+        ``fuzzy_threshold`` is set (0.0-1.0), near-repeat questions within
+        that rapidfuzz ratio are also served. Every hit bumps ``hits`` and
+        ``last_hit_at`` (update-on-every-search).
+
+        Deliberately NO semantic/embedding matching: differently-worded
+        questions can have different answers (e.g. policy questions), so
+        fuzzy is opt-in and conservative by default.
+        """
+        now = datetime.now(_UTC)
+        with self.session() as db:
+            rec = (
+                db.query(QueryCache)
+                .filter(QueryCache.scope == scope, QueryCache.qnorm == qnorm)
+                .first()
+            )
+            if rec is not None:
+                rec.hits += 1
+                rec.last_hit_at = now
+                db.commit()
+                return {
+                    "question": rec.question,
+                    "answer": rec.answer,
+                    "citations": json.loads(rec.citations),
+                    "hits": rec.hits,
+                }
+
+            if fuzzy_threshold is not None:
+                from rapidfuzz import fuzz
+
+                best = None
+                best_ratio = 0.0
+                for row in (
+                    db.query(QueryCache)
+                    .filter(QueryCache.scope == scope)
+                    .all()
+                ):
+                    ratio = fuzz.ratio(qnorm, row.qnorm)
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best = row
+                if best is not None and best_ratio >= fuzzy_threshold * 100:
+                    best.hits += 1
+                    best.last_hit_at = now
+                    db.commit()
+                    return {
+                        "question": best.question,
+                        "answer": best.answer,
+                        "citations": json.loads(best.citations),
+                        "hits": best.hits,
+                        "fuzzy_ratio": best_ratio / 100,
+                    }
+        return None
+
+    def cache_put(
+        self,
+        scope: str,
+        qnorm: str,
+        question: str,
+        answer: str,
+        citations: list[dict],
+    ) -> None:
+        """Store a query → answer pair (update-on-every-search).
+
+        On a conflicting normalized question the existing row is kept
+        (first answer wins — consistency for policy-critical deployments)
+        and its hit counter bumps.
+        """
+        now = datetime.now(_UTC)
+        with self.session() as db:
+            rec = (
+                db.query(QueryCache)
+                .filter(QueryCache.scope == scope, QueryCache.qnorm == qnorm)
+                .first()
+            )
+            if rec is not None:
+                rec.hits += 1
+                rec.last_hit_at = now
+                db.commit()
+                return
+            db.add(
+                QueryCache(
+                    scope=scope,
+                    qnorm=qnorm,
+                    question=question,
+                    answer=answer,
+                    citations=json.dumps(citations, ensure_ascii=False),
+                    hits=1,
+                    created_at=now,
+                    last_hit_at=now,
+                )
+            )
+            db.commit()
+
+    def cache_stats(self) -> dict:
+        """Count cached entries and total hits (for observability)."""
+        with self.session() as db:
+            total = db.query(QueryCache).count()
+            hits = db.query(QueryCache).with_entities(
+                QueryCache.hits
+            ).all()
+            return {"entries": total, "hits": sum(h for (h,) in hits)}
+
+    def cache_top(self, n: int = 10) -> list[dict]:
+        """Most-asked cached questions (the learned repeat index).
+
+        Returns rows sorted by hit count: what users keep asking, how many
+        times it was answered from cache, and the last time.
+        """
+        with self.session() as db:
+            rows = (
+                db.query(QueryCache)
+                .order_by(QueryCache.hits.desc())
+                .limit(n)
+                .all()
+            )
+            return [
+                {
+                    "question": r.question,
+                    "hits": r.hits,
+                    "scope": r.scope,
+                    "last_hit_at": r.last_hit_at.isoformat()
+                    if r.last_hit_at else None,
+                }
+                for r in rows
+            ]
 
     # ── Section Mappings ────────────────────────────────────────────
 
