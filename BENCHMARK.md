@@ -24,10 +24,10 @@ against ground truth verified to exist in the corpus.
 > router classifies the question, an LLM picks relevant TOC headings, and
 > search runs **in parallel** — section-scoped AND full hybrid retrieval
 > merged with normalized fusion, so a wrong heading choice can't hide the
-> answer. Book anatomy: the **menu** holds headings/subheadings only
-> (clean tree); past questions live in a **question index** below it —
-> "can i return" → Return policy (chunks, asked N×) — like a book's TOC
-> for structure and back-of-book index for lookup. The index grows with
+> answer. The **TOC self-updates**: every past question becomes a proper
+> subheading under the section that answered it, converted to heading
+> form ("can i return this item?" → "Return this item"), with the chunk
+> range as its page number — the TOC looks like a TOC and grows with
 > every search. Extra LLM calls buy precision (20/20 once, 19/20 the
 > other) at 3.3× the latency and 2× the cost. The parallel full search
 > also recovered Q10's strict-phrase miss.
@@ -127,10 +127,11 @@ collapsed from ~1,024 to 74 tokens/query for rag-kit; latency from ~11s to
   manuals: LLM-routed heading navigation scored 20/20 (100%) at 3.7s —
   section-scoped and full retrieval run in parallel (a wrong heading can't
   hide the answer) and the menu learns from every search.
-- **The menu stays a book menu; questions live in an index**: headings
-  and subheadings only in the TOC tree; every past question becomes an
-  index entry — "can i return" → Return policy (chunks, asked N×) — so
-  the AI navigates structure via the menu and lookup via the index.
+- **The TOC self-updates and stays a TOC**: headings/subheadings in an
+  indented tree; each past question becomes a heading-form subheading
+  nested under the section that answered it ("can i return this item?" →
+  "Return this item (chunks 40-42)") — looks like a table of contents,
+  grows with every search.
 - **Accuracy-first deployments** (policy chatbots, compliance, refund
   decisions) should use TOC-first + cache: the wrong answer costs more
   than a slow one, and once a policy answer is given it never changes —

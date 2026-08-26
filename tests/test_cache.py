@@ -156,20 +156,50 @@ def test_merge_search_lists_dedupes_and_keeps_both(tmp_db):
     assert merged[1]["score"] > merged[2]["score"]
 
 
-def test_render_question_index_separate_from_menu(tmp_db):
+def test_question_to_heading_conversion(tmp_db):
     from rag_kit._pipeline import Pipeline
     pipe = Pipeline(_make_storage(tmp_db), None)
-    learned = [
-        {"title": "can i return this item", "_parent_title": "Return policy",
-         "level": 3, "chunk_start": 4, "chunk_end": 5, "hits": 7},
-        {"title": "orphan question", "_parent_title": None,
-         "level": 3, "chunk_start": 9, "chunk_end": 9, "hits": 1},
+    cases = {
+        "what is the maximum number of parameters for a function?":
+            "The maximum number of parameters for a function",
+        "how do i create an in-memory database?":
+            "Create an in-memory database",
+        "can i return this item?":
+            "Return this item",
+        "Which Connection attribute controls autocommit behavior?":
+            "Connection attribute controls autocommit behavior",
+        "sqlite3?":
+            "Sqlite3",
+    }
+    for q, expected in cases.items():
+        assert pipe._question_to_heading(q) == expected, q
+
+
+def test_self_updating_toc_folds_learned_headings(tmp_db):
+    from rag_kit._pipeline import Pipeline
+    pipe = Pipeline(_make_storage(tmp_db), None)
+    mappings = [
+        {"title": "Return policy", "level": 1, "hierarchical_path": "Return policy"},
+        {"title": "Shipping", "level": 1, "hierarchical_path": "Shipping"},
     ]
-    idx = pipe._render_question_index(learned)
-    # most-asked first, with section pointer
-    lines = idx.split("\n")
-    assert '  "can i return this item" → Return policy → chunks 4-5 (asked 7×)' in lines
-    assert '"can i return this item"' in lines[1]  # sorted by hits desc
-    assert '"orphan question" → chunks 9-9 (asked 1×)' in lines[2]
-    # empty -> no index block
-    assert pipe._render_question_index([]) == ""
+    learned = [
+        {"title": "can i return this item", "heading": "Return this item",
+         "_parent_title": "Return policy", "level": 2,
+         "chunk_start": 4, "chunk_end": 5, "hits": 7},
+        {"title": "orphan question", "heading": "Orphan question",
+         "_parent_title": None, "level": 3,
+         "chunk_start": 9, "chunk_end": 9, "hits": 1},
+    ]
+    toc = pipe._render_self_updating_toc(mappings, learned)
+    lines = toc.split("\n")
+    # learned heading nests directly under its parent (book TOC order)
+    assert lines[0] == "Return policy"
+    assert lines[1] == "  Return this item  (chunks 4-5)"
+    assert lines[2] == "Shipping"
+    # orphan goes to the end, most-asked first within a parent
+    assert lines[-1] == "  Orphan question  (chunks 9-9)"
+    # no question markers in the TOC — it reads like headings
+    assert "•" not in toc and "asked" not in toc
+    # no learned -> plain TOC
+    assert pipe._render_self_updating_toc(mappings, []) == \
+        "Return policy\nShipping"

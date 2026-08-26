@@ -715,12 +715,14 @@ class Pipeline:
         # The menu updates itself with every search.
         learned = self._learned_menu_entries(file_id, mappings)
         menu = mappings + learned
-        # Book anatomy: the menu holds headings/subheadings only (clean
-        # tree); past questions live in the question index below it —
-        # 'question → section (chunks, asked N×)' — exactly how a book
-        # has a TOC for structure and an index for lookup.
-        index = self._render_question_index(learned)
-        toc_view = toc + ("\n\n" + index) if index else toc
+        # The TOC looks like a TOC (indented headings/subheadings) and
+        # self-updates: every past question becomes a proper subheading
+        # under the section that answered it, in heading form, with the
+        # chunk range as its 'page number'.
+        toc_view = (
+            self._render_self_updating_toc(mappings, learned)
+            if learned else toc
+        )
 
         selected = self._select_headings(question, toc_view, menu)
         if not selected:
@@ -785,6 +787,7 @@ class Pipeline:
             entries.append({
                 "hierarchical_path": f"[learned] {path}",
                 "title": q["question"],
+                "heading": self._question_to_heading(q["question"]),
                 "_parent_title": parent["title"] if parent else None,
                 "chunk_start": q["chunk_start"],
                 "chunk_end": q["chunk_end"],
@@ -795,26 +798,55 @@ class Pipeline:
         return entries
 
     @staticmethod
-    def _render_question_index(learned: list[dict]) -> str:
-        """Render past questions as a back-of-book style index.
+    def _question_to_heading(q: str) -> str:
+        """Turn a user question into a TOC-style heading.
 
-        A book menu holds headings/subheadings; questions live in the
-        index — 'question → section (chunks, asked N×)', most-asked
-        first. The AI gets the clean menu for structure and this index
-        for lookup, without polluting the menu tree.
+        'what is the maximum number of parameters for a function?' ->
+        'The maximum number of parameters for a function'. Deterministic,
+        no LLM call — keeps the self-updating TOC looking like headings,
+        not questions.
         """
-        if not learned:
-            return ""
-        lines = [
-            "Question index (users' past questions, each answered in the "
-            "section it points to — most asked first):"
-        ]
-        for e in sorted(learned, key=lambda x: -x["hits"]):
-            parent = e.get("_parent_title")
-            loc = f"{parent} → " if parent else ""
+        s = q.strip().rstrip("?.")
+        lowered = s.lower()
+        for p in ("what is ", "what are ", "how do i ", "how do you ",
+                  "how to ", "can i ", "can we ", "which ", "when ",
+                  "where ", "why ", "is there ", "are there "):
+            if lowered.startswith(p):
+                s = s[len(p):].strip()
+                break
+        if not s:
+            s = q.strip().rstrip("?.")
+        return s[:90].capitalize()
+
+    @staticmethod
+    def _render_self_updating_toc(mappings: list[dict], learned: list[dict]) -> str:
+        """Render the Table of Contents, book-style, self-updating.
+
+        Document headings/subheadings in an indented tree; learned
+        questions appear as proper subheadings nested under the section
+        that answered them (heading form, most-asked first, chunk range
+        as the 'page number'). The TOC looks like a TOC and grows with
+        every search.
+        """
+        kids: dict[str | None, list[dict]] = {}
+        for e in learned:
+            kids.setdefault(e.get("_parent_title"), []).append(e)
+        for k in kids.values():
+            k.sort(key=lambda x: -x["hits"])
+
+        lines = []
+        for m in mappings:
+            indent = "  " * (m["level"] - 1)
+            lines.append(f"{indent}{m['title']}")
+            for k in kids.get(m["title"], []):
+                kid_indent = "  " * (k["level"] - 1)
+                lines.append(
+                    f"{kid_indent}{k['heading']}  "
+                    f"(chunks {k['chunk_start']}-{k['chunk_end']})"
+                )
+        for k in kids.get(None, []):
             lines.append(
-                f'  "{e["title"]}" → {loc}chunks {e["chunk_start"]}-'
-                f'{e["chunk_end"]} (asked {e["hits"]}×)'
+                f"  {k['heading']}  (chunks {k['chunk_start']}-{k['chunk_end']})"
             )
         return "\n".join(lines)
 
