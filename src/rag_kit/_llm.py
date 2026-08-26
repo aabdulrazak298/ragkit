@@ -12,7 +12,15 @@ import httpx
 _DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 
 # Cheap router model for question routing and heading selection
-ROUTER_MODEL = "google/gemini-2.0-flash-lite-001"  # Fast, cheap, good enough for classification
+ROUTER_MODEL = "google/gemini-2.5-flash-lite"  # Fast, cheap, good enough for classification; honors json_object (verified 2026-08-26; the old 2.0-flash-lite-001 was retired -> 404)
+
+# Router calls are OpenRouter-specific (ROUTER_MODEL is an OpenRouter id).
+# Do NOT read the ambient OPENROUTER_BASE_URL env var here — other services
+# on the same host set it to their own proxies, which silently broke routing
+# (empty content -> JSON parse fail -> silent fallback). A dedicated override
+# is available if the router endpoint ever needs to move.
+ROUTER_BASE_URL = os.environ.get(
+    "RAGKIT_ROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 # Shared HTTP clients — connection reuse instead of a fresh TCP+TLS
 # handshake per call (~0.5-1s saved per query against remote APIs).
@@ -363,7 +371,7 @@ def router_completion(
     heading selection. Uses a fast, cheap model.
     """
     api_key = os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
-    base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    base_url = ROUTER_BASE_URL
 
     if not api_key:
         return _mock_answer(messages)
@@ -400,7 +408,7 @@ def json_completion(
     Add \"Output ONLY valid JSON.\" to the prompt.
     """
     api_key = os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
-    base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    base_url = ROUTER_BASE_URL
 
     if not api_key:
         return {}

@@ -411,6 +411,7 @@ class RAGSystem:
         llm_config: LLMConfig | None = None,
         toc_first: bool = False,
         terse: bool = False,
+        expand_terms: bool = True,
     ) -> QueryResult:
         """Ask a question about a loaded document.
 
@@ -424,6 +425,10 @@ class RAGSystem:
             namespace: Namespace to search (if querying by namespace).
             llm_config: Optional per-query LLM config override.
             toc_first: Use TOC-first retrieval (relevant for file_id queries).
+            expand_terms: In TOC-first mode, spawn 3-7 search terms after
+                reading the TOC and search them in parallel (default True).
+                Measured: recovers hard questions at ~3.8x prompt cost — keep
+                on for identifier-heavy corpora, off for cheap factoid use.
 
         Returns:
             QueryResult with .answer (str) and .citations (list[dict]).
@@ -457,6 +462,7 @@ class RAGSystem:
                     file_id=file_id_or_question,
                     question=question,
                     llm_config=llm_config,
+                    expand_terms=expand_terms,
                 )
             else:
                 answer, citations = self._pipeline.query(
@@ -494,6 +500,7 @@ class RAGSystem:
         llm_config: LLMConfig | None = None,
         toc_first: bool = False,
         terse: bool = False,
+        expand_terms: bool = True,
     ) -> QueryResult:
         """Async query — same contract as query() with async LLM synthesis.
 
@@ -528,6 +535,7 @@ class RAGSystem:
                     file_id=file_id_or_question,
                     question=question,
                     llm_config=llm_config,
+                    expand_terms=expand_terms,
                 )
             else:
                 answer, citations = await self._pipeline.aquery(

@@ -682,7 +682,8 @@ class Pipeline:
     # ── TOC-First Query Pipeline ──────────────────────────────────────
 
     def query_toc_first(
-        self, file_id: int, question: str, llm_config: LLMConfig | None = None
+        self, file_id: int, question: str,
+        llm_config: LLMConfig | None = None, expand_terms: bool = True,
     ) -> tuple[str, list[dict]]:
         """TOC-first query: route → heading selection → targeted search → expansion → answer.
 
@@ -735,7 +736,8 @@ class Pipeline:
         # searched in parallel. BRIGHT-style query expansion: reasoning
         # about the query before retrieval is exactly what lifts the
         # top reasoning-retrievers on the current leaderboards.
-        terms = self._expand_terms(question, toc_view, menu)
+        terms = (self._expand_terms(question, toc_view, menu)
+                 if expand_terms else [question])
         terms = [question] + [t for t in terms if t and t != question]
         terms = terms[:8]  # original question + up to 7 spawned terms
 

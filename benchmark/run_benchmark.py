@@ -469,6 +469,10 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     api_key = get_api_key()
+    # Router/heading/term-expansion calls read OPENROUTER_KEY from the
+    # process env — export it so TOC-first benchmarks exercise the real
+    # routing path (previously they silently fell back to regex).
+    os.environ.setdefault("OPENROUTER_KEY", api_key)
     print(f"model: {args.model}")
     price = fetch_price(args.model)
     print(f"price: ${price[0]*1e6:.3f}/M in, ${price[1]*1e6:.3f}/M out")
