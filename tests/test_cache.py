@@ -176,9 +176,10 @@ def test_render_book_menu_nests_learned_under_parent(tmp_db):
     lines = menu.split("\n")
     assert lines[0] == "Chapter 1"
     assert lines[1] == "  Return policy"
-    # most-asked learned entry first, indented one level deeper
-    assert "• [asked] can i return this item" in lines[2]
-    assert lines.index("  • [asked] can i return this item") < \
-           lines.index("  • [asked] can my customer return")
+    # most-asked learned entry first, nested one level deeper than parent
+    idx1 = lines.index("    • [asked] can i return this item (chunks 4-5, asked 7×)")
+    idx2 = lines.index("    • [asked] can my customer return (chunks 6-7, asked 2×)")
+    assert idx1 < idx2
+    assert idx1 == 2
     # orphan goes to the end
     assert lines[-1] == "  • [asked] orphan question (chunks 9-9)"
