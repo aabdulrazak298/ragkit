@@ -180,6 +180,24 @@ def _extract_headings_from_text(text: str) -> list[dict]:
                     "offset": offset,
                 })
 
+    # RST underline style: a short title line followed by a line of
+    # === (part/chapter), --- (section), ~~~ / ^^^ (subsection).
+    # Guard: skip table rows (| ... |) and grid borders (+---+).
+    rst_level = {"=": 1, "-": 2, "~": 3, "^": 4, '"': 3}
+    for i, line in enumerate(lines[:-1]):
+        stripped = line.strip()
+        if not stripped or len(stripped) > 200:
+            continue
+        if stripped.startswith(("|", "+")):
+            continue
+        nxt = lines[i + 1].strip()
+        if len(nxt) >= 3 and nxt and all(ch in "=-~^\"'" for ch in nxt):
+            headings.append({
+                "title": _clean_heading_title(stripped),
+                "level": rst_level.get(nxt[0], 3),
+                "offset": text.find(stripped),
+            })
+
     # Deduplicate: same title within 100 chars offset = TOC/body dup
     # Keep the later occurrence (body text > TOC text).
     # If same title at very different offsets, keep both

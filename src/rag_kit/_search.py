@@ -21,6 +21,24 @@ DEFAULT_THRESHOLD = 0.3
 VECTOR_WEIGHT = 0.7
 FTS5_WEIGHT = 0.3
 
+# Per-source weights for the normalized hybrid fusion
+HYBRID_W = {"vector": 0.5, "fuzzy": 0.3, "fts5": 0.2}
+FALLBACK_W = {"fuzzy": 0.7, "fts5": 0.3}
+
+
+def _norm_minmax(scores: list[float]) -> list[float]:
+    """Min-max normalize a list of scores to [0, 1] within the list.
+
+    Vector cosine (~0.2-0.6), fuzzy ratio (~0.3-0.66) and FTS5 bm25
+    (~negative) live on incomparable scales; merging raw values lets one
+    source's noise outrank another's genuine top hit. Normalizing each
+    source against its own range makes the fusion scale-fair.
+    """
+    lo, hi = min(scores), max(scores)
+    if hi <= lo:
+        return [1.0] * len(scores)
+    return [(s - lo) / (hi - lo) for s in scores]
+
 
 def search(
     storage: Any,
@@ -118,25 +136,31 @@ def _search_hybrid(
     for r in fuzzy_results:
         r["source"] = "fuzzy"
 
-    # Step 3: Merge — dedupe by (file_id, chunk_index), keeping the
-    # HIGHEST score for each chunk. A chunk found by both vector and fuzzy
-    # must not be dropped with its weaker score (previously the vector
-    # version won by order, losing strong fuzzy/FTS5 hits).
+    # Step 3: Merge — normalize each source to its own range, weight by
+    # source reliability, and SUM contributions per chunk (a chunk found by
+    # several sources accumulates evidence). A chunk must not lose to
+    # another source's noise just because the raw score scales differ.
     by_key: dict[tuple[int, int], dict] = {}
-    for r in vec_results:
-        by_key[(r["file_id"], r["chunk_index"])] = r
 
-    def _merge_in(lst: list[dict], source: str) -> None:
-        for r in lst:
+    def _acc(lst: list[dict], source: str, weight: float) -> None:
+        if not lst:
+            return
+        norms = _norm_minmax([r["score"] for r in lst])
+        for r, ns in zip(lst, norms):
             key = (r["file_id"], r["chunk_index"])
-            r["source"] = source
-            if key not in by_key or r["score"] > by_key[key]["score"]:
-                by_key[key] = r
+            contrib = ns * weight
+            if key in by_key:
+                by_key[key]["score"] += contrib
+            else:
+                by_key[key] = dict(r)
+                by_key[key]["score"] = contrib
+                by_key[key]["source"] = source
 
-    _merge_in(fuzzy_results, "fuzzy_supplement")
-    _merge_in(fts5_results, "fts5_supplement")
+    _acc(vec_results, "vector", HYBRID_W["vector"])
+    _acc(fuzzy_results, "fuzzy_supplement", HYBRID_W["fuzzy"])
+    _acc(fts5_results, "fts5_supplement", HYBRID_W["fts5"])
 
-    # Step 4: Sort by score descending
+    # Step 4: Sort by fused score descending
     merged = sorted(by_key.values(), key=lambda x: x["score"], reverse=True)
     return merged[:top_k]
 
@@ -154,14 +178,25 @@ def _search_fallback(
     # Step 1: Fuzzy linear scan
     fuzzy_results = _fuzzy_scan(storage, query, file_id, namespace, threshold)
 
-    # Step 2: Merge — dedupe by (file_id, chunk_index), keep highest score
-    by_key: dict[tuple[int, int], dict] = {
-        (r["file_id"], r["chunk_index"]): r for r in fuzzy_results
-    }
-    for r in fts5_results:
-        key = (r["file_id"], r["chunk_index"])
-        if key not in by_key or r["score"] > by_key[key]["score"]:
-            by_key[key] = r
+    # Step 2: Merge — normalized weighted fusion (see _search_hybrid)
+    by_key: dict[tuple[int, int], dict] = {}
+
+    def _acc(lst: list[dict], source: str, weight: float) -> None:
+        if not lst:
+            return
+        norms = _norm_minmax([r["score"] for r in lst])
+        for r, ns in zip(lst, norms):
+            key = (r["file_id"], r["chunk_index"])
+            contrib = ns * weight
+            if key in by_key:
+                by_key[key]["score"] += contrib
+            else:
+                by_key[key] = dict(r)
+                by_key[key]["score"] = contrib
+                by_key[key]["source"] = source
+
+    _acc(fuzzy_results, "fuzzy", FALLBACK_W["fuzzy"])
+    _acc(fts5_results, "fts5_supplement", FALLBACK_W["fts5"])
 
     merged = sorted(by_key.values(), key=lambda x: x["score"], reverse=True)
     return merged[:top_k]

@@ -13,10 +13,18 @@ against ground truth verified to exist in the corpus.
 
 | System | Accuracy | Retrieval hit | Avg latency | Avg prompt tok | Avg comp tok | Avg cost/query | Total |
 |---|---|---|---|---|---|---|---|
-| **rag-kit (terse, local)** | **18/20 (90%)** | **18/20 (90%)** | **1.3s** | 1,669 | 76 | $0.000126 | $0.0025 |
-| rag-kit (terse async, local) | 18/20 (90%) | 18/20 (90%) | 1.1s | 1,669 | 74 | $0.000126 | $0.0025 |
-| LlamaIndex (k=2) | 16/20 (80%) | 16/20 (80%) | 0.9s | 1,941 | 47 | $0.000138 | $0.0028 |
-| LlamaIndex (k=10) | 18/20 (90%) | 19/20 (95%) | 5.3s | 1,171 | 52 | $0.000090 | $0.0018 |
+| **rag-kit (terse, local)** | **19/20 (95%)** | **19/20 (95%)** | **1.0s** | 1,669 | 68 | $0.000119 | $0.0024 |
+| rag-kit (terse async, local) | 19/20 (95%) | 19/20 (95%) | 1.2s | 1,669 | 71 | $0.000120 | $0.0024 |
+| rag-kit (TOC-first, local) | 19/20 (95%) | 19/20 (95%) | 3.6s | 1,758 | 460 | $0.000234 | $0.0047 |
+| rag-kit (TOC-first async, local) | **20/20 (100%)** | 19/20 (95%) | 3.7s | 1,758 | 467 | $0.000236 | $0.0047 |
+| LlamaIndex (k=2) | 16/20 (80%) | 16/20 (80%) | 1.0s | 1,941 | 48 | $0.000139 | $0.0028 |
+| LlamaIndex (k=10) | 18/20 (90%) | 19/20 (95%) | 5.9s | 1,171 | 60 | $0.000092 | $0.0018 |
+
+> TOC-first rows use the navigation pipeline (`toc_first=True`): an LLM
+> router classifies the question, an LLM picks relevant TOC headings, and
+> search runs only inside those sections — extra LLM calls buy precision
+> (20/20 once) at 3.6× the latency and 2× the cost. The async run even
+> recovered Q10's strict-phrase miss via its longer synthesis.
 
 ### Embedding-fairness note (important)
 
@@ -75,10 +83,14 @@ collapsed from ~1,024 to 74 tokens/query for rag-kit; latency from ~11s to
 
 ### How to read this
 
-- **rag-kit ties LlamaIndex's best accuracy and beats it on speed**: 18/20
-  (90%) at 1.3s vs k=10's 18/20 (90%) at 5.3s — **4.2× faster at equal
-  accuracy** — and beats k=2 by 10 points (90% vs 80%).
-- **LlamaIndex k=2's speed is its accuracy loss** — 0.9s but 10 points
+- **rag-kit beats LlamaIndex on accuracy AND speed with fully local
+  embeddings**: 19/20 (95%) at 1.0s vs k=10's 18/20 (90%) at 5.9s
+  (**5.9× faster AND 5 points more accurate**) and k=2's 16/20 (80%) at
+  1.0s (**15 points more accurate at the same speed**).
+- **TOC-first mode** (`toc_first=True`) is the precision option for large
+  manuals: LLM-routed heading navigation scored 19–20/20 (100% once) at
+  3.6s — extra LLM calls, not for every query.
+- **LlamaIndex k=2's speed is its accuracy loss** — 1.0s but 15 points
   behind, because 2 raw chunks produce thin answers (47 output tokens).
 - **Context efficiency:** rag-kit feeds 10 trimmed/reranked chunks in fewer
   prompt tokens (1,669) than LlamaIndex needs for 2 raw chunks (1,941) —
@@ -137,7 +149,8 @@ not sync/async.
 
 | System | Chunking | Retrieval | Context fed to LLM |
 |---|---|---|---|
-| rag-kit (terse, local) | 1200 chars, 200 overlap, heading-aware | FTS5 BM25 + rapidfuzz fuzzy + local vector (turbovec 4-bit), best-score merge, top-10, sentence-window trimming | TOC (up to 1k chars) + top-10 trimmed chunks + concise synthesis prompt |
+| rag-kit (terse, local) | 1200 chars, 200 overlap, heading-aware (incl. RST underline headings) | FTS5 BM25 + rapidfuzz fuzzy + local vector (turbovec 4-bit), min-max normalized weighted fusion (vector 0.5 / fuzzy 0.3 / FTS5 0.2), top-10, sentence-window trimming | TOC (up to 1k chars) + top-10 trimmed chunks + concise synthesis prompt |
+| rag-kit (TOC-first) | same | LLM route → LLM heading selection → targeted search within sections → expansion (falls back to standard) | section-scoped chunks + synthesis |
 | rag-kit (terse, api) | same | same but qwen3-embedding-8b API vectors | same (19/20 @ 2.3–4.2s — stronger embedder, ~1s/query API round-trip) |
 | LlamaIndex (default) | 1024 tokens, 20 overlap | Vector top-k=2 (library default) | top-2 nodes |
 | LlamaIndex (k=10) | same | Vector top-k=10 | top-10 nodes |

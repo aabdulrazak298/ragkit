@@ -157,7 +157,7 @@ def _restore_capture():
 
 def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
                out_dir: Path, model: str, async_mode: bool = False,
-               terse: bool = False, embed: str = "api") -> dict:
+               terse: bool = False, embed: str = "api", toc_first: bool = False) -> dict:
     from rag_kit import RAGSystem, LLMConfig
 
     _install_capture()
@@ -189,9 +189,10 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
         retr = " ".join(
             chunk_map.get(c.get("chunk_index"), "") for c in res.citations
         )
-        usage = captured[-1] if captured else {}
-        pt = usage.get("prompt_tokens", 0)
-        ct = usage.get("completion_tokens", 0)
+        # Sum usage across all LLM calls in the query window (TOC-first
+        # makes route + heading-selection + synthesis calls per query).
+        pt = sum(u.get("prompt_tokens", 0) for u in captured)
+        ct = sum(u.get("completion_tokens", 0) for u in captured)
         if pt < 300 and len(answer) > 200:
             print(f"    !! WARNING {qid}: prompt_tokens={pt} suspiciously low for "
                   f"a {len(answer)}-char answer", file=sys.stderr, flush=True)
@@ -209,7 +210,7 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
         captured.clear()
         t0 = time.time()
         try:
-            res = rag.query(fid, q, terse=terse)
+            res = rag.query(fid, q, terse=terse, toc_first=toc_first)
         except Exception as e:
             rows.append(dict(id=qid, question=q, answer=f"<error: {e}>",
                              correct=False, retr_hit=False,
@@ -222,7 +223,7 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
         captured.clear()
         t0 = time.time()
         try:
-            res = await rag.aquery(fid, q, terse=terse)
+            res = await rag.aquery(fid, q, terse=terse, toc_first=toc_first)
         except Exception as e:
             rows.append(dict(id=qid, question=q, answer=f"<error: {e}>",
                              correct=False, retr_hit=False,
@@ -244,7 +245,8 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
             _one_query(qid, q, phrases)
 
     _restore_capture()
-    _label = f"{'terse ' if terse else ''}{'async' if async_mode else 'sync'}{', ' + embed if embed != 'api' else ''}"
+    _label = (f"{'toc-first ' if toc_first else ''}{'terse ' if terse else ''}"
+              f"{'async' if async_mode else 'sync'}{', ' + embed if embed != 'api' else ''}")
     return dict(system=f"rag-kit ({_label})",
                 build_s=build_s, rows=rows)
 
@@ -429,6 +431,8 @@ def main():
                     help="run rag-kit with the concise synthesis prompt (fewer output tokens)")
     ap.add_argument("--embed", choices=["api", "local"], default="api",
                     help="rag-kit embedding backend: api (OpenRouter qwen3-embedding-8b) or local (all-MiniLM-L6-v2)")
+    ap.add_argument("--toc-first", action="store_true",
+                    help="run rag-kit with the TOC-first pipeline (route -> heading selection -> targeted search)")
     ap.add_argument("--only", choices=["ragkit", "llamaindex"], default=None)
     ap.add_argument("--max-q", type=int, default=None,
                     help="run only the first N questions (smoke test)")
@@ -463,10 +467,12 @@ def main():
         if args.async_first:
             order = [(True, "async"), (False, "sync")]
         for async_mode, label in order:
-            print(f"running rag-kit ({label}{', terse' if args.terse else ''}{', ' + args.embed if args.embed != 'api' else ''})...")
+            print(f"running rag-kit ({label}{', terse' if args.terse else ''}"
+                  f"{', toc-first' if args.toc_first else ''}"
+                  f"{', ' + args.embed if args.embed != 'api' else ''})...")
             results.append(run_ragkit(str(corpus_path), api_key, price, out_dir,
                                       args.model, async_mode=async_mode, terse=args.terse,
-                                      embed=args.embed))
+                                      embed=args.embed, toc_first=args.toc_first))
             _save_partial()
     if args.only in (None, "llamaindex"):
         # LlamaIndex needs a .txt extension for its default reader
