@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [
-    { name = "Rubberflex Instruments", email = "azuan@rubberflex.com.my" },
+    { name = "Azuan Abdul Razak", email = "aabdulrazak@icloud.com" },
 ]
 keywords = ["rag", "search", "text", "llm", "retrieval"]
 classifiers = [
