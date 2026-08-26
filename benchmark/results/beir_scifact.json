@@ -2,16 +2,53 @@
   "dataset": "BeIR/scifact",
   "corpus_docs": 5183,
   "test_queries": 300,
-  "embedder": "all-MiniLM-L6-v2 (local, turbovec 4-bit)",
+  "embedder": "all-MiniLM-L6-v2 (local) + qwen3-embedding-8b (API)",
   "indexing": "one abstract per chunk (doc-level retrieval)",
   "metrics": {
-    "hybrid":  {"ndcg10": 0.6687, "mrr10": 0.6370, "r5": 0.737, "r10": 0.785},
-    "vector":  {"ndcg10": 0.6406, "mrr10": 0.5991, "r5": 0.723, "r10": 0.787},
-    "lexical": {"ndcg10": 0.5391, "mrr10": 0.4987, "r5": 0.604, "r10": 0.692}
+    "hybrid": {
+      "ndcg10": 0.6687,
+      "mrr10": 0.637,
+      "r5": 0.737,
+      "r10": 0.785
+    },
+    "vector": {
+      "ndcg10": 0.6406,
+      "mrr10": 0.5991,
+      "r5": 0.723,
+      "r10": 0.787
+    },
+    "lexical": {
+      "ndcg10": 0.5391,
+      "mrr10": 0.4987,
+      "r5": 0.604,
+      "r10": 0.692
+    },
+    "hybrid_api": {
+      "ndcg10": 0.7554,
+      "mrr10": 0.7244,
+      "r5": 0.829,
+      "r10": 0.874
+    },
+    "vector_api": {
+      "ndcg10": 0.7708,
+      "mrr10": 0.733,
+      "r5": 0.823,
+      "r10": 0.903
+    },
+    "lexical_api": {
+      "ndcg10": 0.5331,
+      "mrr10": 0.4844,
+      "r5": 0.621,
+      "r10": 0.714
+    }
   },
   "references_ndcg10": {
-    "BM25": 0.665, "ColBERT": 0.671, "Contriever": 0.677, "SPLADE": 0.699,
-    "BM25+CE": 0.688, "E5-PT_base": 0.737,
+    "BM25": 0.665,
+    "ColBERT": 0.671,
+    "Contriever": 0.677,
+    "SPLADE": 0.699,
+    "BM25+CE": 0.688,
+    "E5-PT_base": 0.737,
     "MiniLM-L6 semantic-only (browser bench)": 0.607,
     "MiniLM-L6 hybrid-RRF (browser bench)": 0.694
   },

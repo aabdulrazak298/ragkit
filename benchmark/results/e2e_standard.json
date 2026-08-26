@@ -1,0 +1,31 @@
+{
+  "squad": {
+    "dataset": "SQuAD 1.1 dev (first 300 questions)",
+    "corpus": "all 536 articles, 20,963 paragraphs (train+dev)",
+    "reader": "extractive (SQuAD-standard), qwen/qwen3.5-flash-02-23 temp 0.1 reasoning off",
+    "retriever": "rag-kit hybrid, all-MiniLM-L6-v2 local",
+    "EM": 0.887,
+    "F1": 0.910,
+    "Recall@10": 0.953,
+    "latency_s_per_query": 0.96
+  },
+  "crag": {
+    "dataset": "CRAG Task 1&2 dev v4 (first 200 validation questions, web questions)",
+    "setting": "5 full HTML pages per question, text-extracted (8000-char cap)",
+    "reader": "concise fact, qwen/qwen3.5-flash-02-23",
+    "judge": "LLM auto-judge (official-style), qwen3.5-flash",
+    "judge_accuracy": 0.325,
+    "exact_match": 0.105,
+    "contains_judge_free": 0.185,
+    "F1": 0.125,
+    "gold_literal_in_pages": 0.110,
+    "gold_in_top10_retrieved": 0.120,
+    "latency_s_per_query": 2.0,
+    "paper_reference_task1_accuracy": {
+      "GPT-4 Turbo + RAG": 0.359,
+      "Llama 3 70B + RAG": 0.356
+    }
+  },
+  "run_date": "2026-08-26",
+  "command": "cd benchmark && .venv/bin/python run_rag_e2e.py --dataset squad --max-q 300 && .venv/bin/python run_rag_e2e.py --dataset crag --max-q 200 --judge"
+}

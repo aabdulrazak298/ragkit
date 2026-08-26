@@ -19,6 +19,7 @@ Usage:
 import argparse
 import json
 import math
+import numpy as np
 import os
 import sys
 import time
@@ -81,9 +82,11 @@ def fetch_dataset(dataset: str, cache_dir: Path) -> tuple[list, list, dict]:
 
 
 def run_retriever_benchmark(dataset: str = "scifact", max_q: int | None = None,
-                            force_reindex: bool = False):
+                            force_reindex: bool = False,
+                            embed_backend: str = "local"):
     from rag_kit import RAGSystem
     from rag_kit._search import search as search_chunks
+    from rag_kit._vector_index import pack_id
 
     cache_dir = BASE / ".beir_cache"
     corpus, queries, qrels = fetch_dataset(dataset, cache_dir)
@@ -94,15 +97,16 @@ def run_retriever_benchmark(dataset: str = "scifact", max_q: int | None = None,
         test_qids = test_qids[:max_q]
     print(f"corpus={len(corpus)} docs, test queries={len(test_qids)}", flush=True)
 
-    db_path = str(cache_dir / f"beir_{dataset}.db")
+    suffix = "" if embed_backend == "local" else f"_{embed_backend}"
+    db_path = str(cache_dir / f"beir_{dataset}{suffix}.db")
     reuse = not force_reindex and os.path.exists(db_path)
     if not reuse and os.path.exists(db_path):
         os.unlink(db_path)
     rag = RAGSystem(db_path=db_path, llm_config=None, max_files=0,
-                    embed_backend="local")
+                    embed_backend=embed_backend)
     st = rag._storage
     vi = rag._vector_index
-    ns = "sci"
+    ns = "sci" if embed_backend == "local" else "sciapi"
 
     if reuse and vi.load(ns):
         print(f"reusing existing index ({vi.size} vectors) ...", flush=True)
@@ -115,8 +119,8 @@ def run_retriever_benchmark(dataset: str = "scifact", max_q: int | None = None,
     else:
         # Index each abstract as ONE file with ONE chunk (short docs -> doc-level
         # retrieval, directly comparable to BEIR leaderboard numbers)
-        doc_id_by_file = {}
         t0 = time.time()
+        doc_id_by_file = {}
         for i, doc in enumerate(corpus):
             fid = st.create_file(
                 url=None, file_path=None, filename=f"{doc['_id']}.txt",
@@ -127,11 +131,20 @@ def run_retriever_benchmark(dataset: str = "scifact", max_q: int | None = None,
                 namespace=ns, source_type="text",
                 content_hash=f"beir-{doc['_id']}",
             )
-            vi.add_file(fid, [doc["text"]])
             doc_id_by_file[fid] = doc["_id"]
             if (i + 1) % 1000 == 0:
-                print(f"  indexed {i + 1}/{len(corpus)} "
+                print(f"  files {i + 1}/{len(corpus)} "
                       f"({time.time() - t0:.0f}s)", flush=True)
+        # Embed in batches (API: 64 docs/call instead of 5,183 calls)
+        texts = [doc["text"] for doc in corpus]
+        batch = 64
+        for b in range(0, len(texts), batch):
+            vecs = vi.embed(texts[b:b + batch])
+            ids = np.array(
+                [pack_id(i + 1, 0) for i in range(b, min(b + batch, len(texts)))],
+                dtype=np.uint64,
+            )
+            vi._index.add_with_ids(vecs, ids)
         vi.save(ns)
         print(f"indexed {len(corpus)} docs in {time.time() - t0:.0f}s",
               flush=True)
@@ -171,7 +184,8 @@ def run_retriever_benchmark(dataset: str = "scifact", max_q: int | None = None,
     def _avg(rows, key):
         return sum(r[key] for r in rows) / len(rows)
 
-    print("\n=== BEIR SciFact — retriever only (no LLM) ===")
+    print(f"\n=== BEIR SciFact — retriever only (no LLM) "
+          f"[embed backend: {embed_backend}] ===")
     print(f"{'retriever':10s} {'nDCG@10':>8s} {'MRR@10':>7s} "
           f"{'R@5':>6s} {'R@10':>6s}")
     for name in ("hybrid", "vector", "lexical"):
@@ -193,5 +207,9 @@ if __name__ == "__main__":
                     help="run only the first N test queries (smoke)")
     ap.add_argument("--force-reindex", action="store_true",
                     help="rebuild the index even if a cached one exists")
+    ap.add_argument("--embed", choices=["local", "api"], default="local",
+                    help="embedding backend: local MiniLM or OpenRouter "
+                         "qwen3-embedding-8b (requires OPENROUTER_KEY)")
     args = ap.parse_args()
-    run_retriever_benchmark(args.dataset, args.max_q, args.force_reindex)
+    run_retriever_benchmark(args.dataset, args.max_q, args.force_reindex,
+                            args.embed)

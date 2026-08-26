@@ -72,6 +72,9 @@ benchmark — 5,183 scientific abstracts, 300 test claims, expert qrels:
 | **rag-kit hybrid** (vector + fuzzy + FTS5) | **0.669** | **0.637** | **0.737** | **0.785** |
 | rag-kit vector-only (MiniLM local) | 0.641 | 0.599 | 0.723 | 0.787 |
 | rag-kit lexical-only (FTS5 + fuzzy) | 0.539 | 0.499 | 0.604 | 0.692 |
+| **rag-kit hybrid** (qwen3-embedding-8b API) | **0.755** | **0.724** | **0.829** | **0.874** |
+| rag-kit vector-only (qwen3-8b API) | **0.771** | 0.733 | 0.823 | 0.903 |
+| rag-kit lexical-only | 0.533 | 0.484 | 0.621 | 0.714 |
 
 Zero-shot nDCG@10 references: BM25 0.665, ColBERT 0.671, Contriever 0.677,
 SPLADE 0.699, BM25+CE 0.688, E5-PT_base 0.737. (Same-embedder browser
@@ -86,9 +89,68 @@ the fusion is doing real work. Trailers are retrieval-trained models
 stronger embedder (qwen3-embedding-8b API or BGE-M3) for leaderboard-top
 scores; the local MiniLM path is the offline/private option.
 
+With the **qwen3-embedding-8b API embedder**, vector-only hits nDCG@10
+**0.771** — above every zero-shot reference on this table (SPLADE 0.699,
+E5-PT_base 0.737). Notably the hybrid fusion *drops* to 0.755: when the
+vector source is strong, min-max normalization lets weak lexical signals
+dilute the ranking. Lesson: the fusion helps a weak embedder (+0.03) but
+should trust vector more when its score spread is high (adaptive weighting
+is a future tuning item). The local-vs-api gap (0.669 → 0.771) is the
+embedding ceiling in action — architecture stays identical.
+
 Reproduce: `cd benchmark && .venv/bin/python run_beir.py`
 (first run downloads BeIR/scifact ~30MB, indexes ~5 min, evaluates 300
 queries in ~1 min; later runs reuse the index).
+
+### End-to-end RAG on standard benchmarks (SQuAD + CRAG)
+
+Full pipeline (retrieve + answer) scored on the standard RAG datasets,
+`benchmark/run_rag_e2e.py`. Reader prompt follows each benchmark's
+convention (extractive for SQuAD, single-fact for CRAG); retrieval is
+rag-kit's hybrid retriever with the local MiniLM embedder; generator is
+qwen3.5-flash (temp 0.1, reasoning off) — the same model as the head-to-head
+benchmarks.
+
+**SQuAD 1.1** (dev, first 300 questions; open-book corpus = all 20,963
+paragraphs of train+dev):
+
+| Metric | Score |
+|---|---|
+| EM (exact match, official SQuAD scorer) | **0.887** |
+| F1 (official SQuAD scorer) | **0.910** |
+| Retrieval recall@10 (gold paragraph in top-10) | **0.953** |
+| Latency | 0.96 s/query |
+
+Zero-shot, no fine-tuning, local embeddings, no judges. Retrieval recall
+@10 (0.953) is the ceiling the reader works under; the EM/F1 are right at
+the level of fine-tuned extractive SQuAD models (BERT-class ~0.87-0.89 EM).
+
+**CRAG Task 1&2** (Meta 2024; dev, first 200 validation questions, web
+questions, 5 full HTML pages per question as retrieval context):
+
+| Metric | Score |
+|---|---|
+| LLM auto-judge accuracy (official-style metric) | **0.325** |
+| exact match (judge-free floor) | 0.105 |
+| contains (lenient judge-free) | 0.185 |
+| F1 (token overlap) | 0.125 |
+| gold answer literally present in the 5 pages | 0.110 |
+| gold present in top-10 retrieved | 0.120 |
+
+Paper reference (Task 1, same setting, official auto-judge): GPT-4 Turbo
++ RAG **0.359**, Llama 3 70B + RAG 0.356, LLM-only GPT-4 Turbo 0.335.
+rag-kit + qwen3.5-flash scores 0.325 — within 3.4 points of GPT-4 Turbo
++ RAG using a flash model as reader *and* judge. CRAG's own design makes
+this hard: only 5 pages per question, relevance not guaranteed, and gold
+answers are paraphrases (the literal gold string appears in only 11% of
+page sets — the paper's page-relevance recall for top-5 is ~69%, a
+different measure). The official metric uses an LLM judge; both the
+judge-free floor (exact 0.105) and the official-style judge (0.325) are
+reported.
+
+Reproduce: `cd benchmark && .venv/bin/python run_rag_e2e.py --dataset squad
+--max-q 300 && .venv/bin/python run_rag_e2e.py --dataset crag --max-q 200
+--judge` (downloads SQuAD ~35MB, CRAG ~740MB first run; index is reused).
 
 ### Embedding-fairness note (important)
 

@@ -9,3 +9,4 @@ smoke.log
 # BEIR benchmark cache (large downloads + index)
 .beir_cache/
 !results/beir_scifact.json
+!results/e2e_standard.json
