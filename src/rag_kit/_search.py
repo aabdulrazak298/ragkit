@@ -48,6 +48,8 @@ def search(
     top_k: int = 20,
     threshold: float | None = None,
     vector_index: Any | None = None,
+    use_fuzzy: bool = True,
+    mode: str = "auto",
 ) -> list[dict[str, Any]]:
     """Search chunks — hybrid semantic+FTS5 when vector index available.
 
@@ -73,6 +75,10 @@ def search(
     if threshold is None:
         threshold = DEFAULT_THRESHOLD
 
+    if mode not in ("auto", "hybrid", "lexical", "vector"):
+        raise ValueError(
+            f"mode must be auto/hybrid/lexical/vector, got {mode!r}")
+
     # Check if vector index is available and populated
     use_vectors = (
         vector_index is not None
@@ -92,10 +98,19 @@ def search(
         r["score"] = max(0.0, min(1.0, raw / 5.0 + 0.5))  # BM25 normalise
         r["source"] = "fts5"
 
-    if use_vectors:
+    if mode == "lexical":
+        # Lexicon/term lookup: skip vectors entirely — exact keywords and
+        # fuzzy token matches only. Wins on identifiers, tags, part numbers,
+        # code symbols (see BRIGHT: rare/identifier terms defeat dense).
+        return _search_fallback(
+            storage, query, fts5_results, file_id, namespace, threshold,
+            top_k)
+
+    if use_vectors and mode != "lexical":
         return _search_hybrid(
             storage, query, fts5_results, vector_index, top_k,
             file_id=file_id, namespace=namespace, threshold=threshold,
+            use_fuzzy=use_fuzzy,
         )
     else:
         return _search_fallback(storage, query, fts5_results, file_id, namespace, threshold, top_k)
@@ -110,6 +125,7 @@ def _search_hybrid(
     file_id: int | None = None,
     namespace: str | None = None,
     threshold: float = DEFAULT_THRESHOLD,
+    use_fuzzy: bool = True,
 ) -> list[dict[str, Any]]:
     """Hybrid search: vector search primary, FTS5 fills gaps.
 
@@ -132,9 +148,12 @@ def _search_hybrid(
 
     # Step 2: Fuzzy supplement — catches compound identifiers that FTS5
     # tokenization misses (e.g. "executescript" vs "executes a script").
-    fuzzy_results = _fuzzy_scan(storage, query, file_id, namespace, threshold)
-    for r in fuzzy_results:
-        r["source"] = "fuzzy"
+    fuzzy_results: list[dict] = []
+    if use_fuzzy:
+        fuzzy_results = _fuzzy_scan(
+            storage, query, file_id, namespace, threshold)
+        for r in fuzzy_results:
+            r["source"] = "fuzzy"
 
     # Step 3: Merge — normalize each source to its own range, weight by
     # source reliability, and SUM contributions per chunk (a chunk found by

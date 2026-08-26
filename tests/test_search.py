@@ -8,6 +8,28 @@ import pytest
 from rag_kit._search import search, _fuzzy_scan
 
 
+def test_search_mode_lexical_skips_vector(tmp_db):
+    """mode='lexical' returns FTS5+fuzzy results even when no vector index
+    exists, and rejects invalid modes."""
+    storage = _make_storage(tmp_db)
+    with pytest.raises(ValueError):
+        search(storage, "safety", file_id=1, mode="bogus")
+    results = search(storage, "safety procedures", file_id=1, top_k=5,
+                     mode="lexical")
+    assert results, "lexical mode should return matches"
+    assert results[0]["file_id"] == 1
+    assert all(r["source"] in ("fts5", "fuzzy") for r in results)
+
+
+def test_search_mode_auto_falls_back_without_vectors(tmp_db):
+    """mode='auto' (default) without a vector index uses the lexical
+    fallback path — unchanged behaviour."""
+    storage = _make_storage(tmp_db)
+    results = search(storage, "safety procedures", file_id=1, top_k=5)
+    assert results
+
+
+
 @pytest.fixture
 def tmp_db():
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:

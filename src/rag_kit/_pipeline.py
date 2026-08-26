@@ -729,14 +729,17 @@ class Pipeline:
             # LLM couldn't find relevant headings — fall back
             return self.query(file_id, question, llm_config)
 
-        # Step 2: PARALLEL search — section-scoped AND full hybrid, merged.
-        # Hedges wrong-section navigation: if heading selection picked a
-        # section without the answer, the full search still surfaces it.
-        # (Sequential TOC-first had a blind spot: a wrong section with
-        # keyword matches returned garbage without ever falling back.)
+        # Step 2: PARALLEL search — section-scoped, full hybrid, AND a full
+        # lexical leg (FTS5+fuzzy only), all merged. Hedges wrong-section
+        # navigation AND identifier/term queries: exact tags, part numbers
+        # and code symbols that vector search buries surface through the
+        # independent lexical pass (see BRIGHT: rare/identifier terms beat
+        # dense retrieval). Each leg is min-max normalized on its own scale
+        # before fusion, so the lexical leg is never diluted by semantic
+        # scores.
         from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=2) as ex:
+        with ThreadPoolExecutor(max_workers=3) as ex:
             f_t = ex.submit(
                 self._targeted_search, file_id, question, selected, mappings
             )
@@ -744,9 +747,14 @@ class Pipeline:
                 search_chunks, self._storage, query=question, file_id=file_id,
                 top_k=10, vector_index=self._vector_index,
             )
+            f_l = ex.submit(
+                search_chunks, self._storage, query=question, file_id=file_id,
+                top_k=10, vector_index=self._vector_index, mode="lexical",
+            )
             targeted = f_t.result()
             full = f_f.result()
-        matched_chunks = self._merge_search_lists(targeted, full)
+            lexical = f_l.result()
+        matched_chunks = self._merge_search_lists(targeted, full, lexical)
 
         if not matched_chunks:
             # Nothing at all — fall back
