@@ -124,9 +124,9 @@ def test_learned_menu_entries_attach_parent_section(tmp_db):
         namespace="bench",
     )
     st.set_section_mappings(fid, [
-        {"hierarchical_path": "Return policy", "level": 1,
+        {"hierarchical_path": "Return policy", "title": "Return policy", "level": 1,
          "chunk_start": 0, "chunk_end": 1},
-        {"hierarchical_path": "Shipping", "level": 1,
+        {"hierarchical_path": "Shipping", "title": "Shipping", "level": 1,
          "chunk_start": 1, "chunk_end": 2},
     ])
     st.cache_put(f"file:{fid}", "can i return this item",
@@ -154,3 +154,31 @@ def test_merge_search_lists_dedupes_and_keeps_both(tmp_db):
     # chunk 2 appears once (evidence summed from both sources)
     assert sum(1 for m in merged if m["chunk_index"] == 2) == 1
     assert merged[1]["score"] > merged[2]["score"]
+
+
+def test_render_book_menu_nests_learned_under_parent(tmp_db):
+    from rag_kit._pipeline import Pipeline
+    pipe = Pipeline(_make_storage(tmp_db), None)
+    mappings = [
+        {"title": "Chapter 1", "level": 1, "hierarchical_path": "Chapter 1"},
+        {"title": "Return policy", "level": 2,
+         "hierarchical_path": "Chapter 1 > Return policy"},
+    ]
+    learned = [
+        {"title": "can i return this item", "_parent_title": "Return policy",
+         "level": 3, "chunk_start": 4, "chunk_end": 5, "hits": 7},
+        {"title": "can my customer return", "_parent_title": "Return policy",
+         "level": 3, "chunk_start": 6, "chunk_end": 7, "hits": 2},
+        {"title": "orphan question", "_parent_title": None,
+         "level": 3, "chunk_start": 9, "chunk_end": 9, "hits": 1},
+    ]
+    menu = pipe._render_book_menu(mappings, learned)
+    lines = menu.split("\n")
+    assert lines[0] == "Chapter 1"
+    assert lines[1] == "  Return policy"
+    # most-asked learned entry first, indented one level deeper
+    assert "• [asked] can i return this item" in lines[2]
+    assert lines.index("  • [asked] can i return this item") < \
+           lines.index("  • [asked] can my customer return")
+    # orphan goes to the end
+    assert lines[-1] == "  • [asked] orphan question (chunks 9-9)"

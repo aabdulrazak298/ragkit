@@ -715,16 +715,10 @@ class Pipeline:
         # The menu updates itself with every search.
         learned = self._learned_menu_entries(file_id, mappings)
         menu = mappings + learned
-        toc_view = toc
-        if learned:
-            learned_lines = "\n".join(
-                f"  {e['hierarchical_path']} (chunks {e['chunk_start']}-{e['chunk_end']})"
-                for e in learned
-            )
-            toc_view = toc + (
-                "\n\nLearned menu entries (added automatically from past "
-                "searches — users kept asking these):\n" + learned_lines
-            )
+        # Book-style menu: indented tree with learned questions nested
+        # under the section that answered them — like scanning a thick
+        # book's TOC and drilling to the chapter.
+        toc_view = self._render_book_menu(mappings, learned) if learned else toc
 
         selected = self._select_headings(question, toc_view, menu)
         if not selected:
@@ -788,6 +782,8 @@ class Pipeline:
                 path = f"{parent['hierarchical_path']} → {path}"
             entries.append({
                 "hierarchical_path": f"[learned] {path}",
+                "title": q["question"],
+                "_parent_title": parent["title"] if parent else None,
                 "chunk_start": q["chunk_start"],
                 "chunk_end": q["chunk_end"],
                 "level": (parent["level"] + 1) if parent else 3,
@@ -795,6 +791,36 @@ class Pipeline:
                 "hits": q["hits"],
             })
         return entries
+
+    @staticmethod
+    def _render_book_menu(mappings: list[dict], learned: list[dict]) -> str:
+        """Render the menu like a thick book's table of contents.
+
+        Indented tree: chapter → section → subsection, with learned
+        questions nested directly under the section that answered them
+        (most-asked first) — exactly how a reader scans a book menu and
+        drills to the page. Orphaned learned entries (no parent found)
+        go at the end.
+        """
+        kids: dict[str, list[dict]] = {}
+        for e in learned:
+            kids.setdefault(e.get("_parent_title"), []).append(e)
+        for k in kids.values():
+            k.sort(key=lambda x: -x["hits"])
+
+        lines = []
+        for m in mappings:
+            indent = "  " * (m["level"] - 1)
+            lines.append(f"{indent}{m['title']}")
+            for k in kids.get(m["title"], []):
+                kid_indent = "  " * (k["level"] - 1)
+                lines.append(
+                    f"{kid_indent}• [asked] {k['title']} "
+                    f"(chunks {k['chunk_start']}-{k['chunk_end']}, asked {k['hits']}×)"
+                )
+        for k in kids.get(None, []):
+            lines.append(f"  • [asked] {k['title']} (chunks {k['chunk_start']}-{k['chunk_end']})")
+        return "\n".join(lines)
 
     @staticmethod
     def _merge_search_lists(*lists: list[dict]) -> list[dict]:
