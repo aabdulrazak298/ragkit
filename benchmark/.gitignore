@@ -5,3 +5,7 @@ __pycache__/
 results_run.log
 smoke.log
 *.log
+
+# BEIR benchmark cache (large downloads + index)
+.beir_cache/
+!results/beir_scifact.json

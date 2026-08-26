@@ -62,6 +62,34 @@ Design notes:
 - The cache sits in front of BOTH pipelines — a repeated policy question
   is instant even in TOC-first (accuracy) mode.
 
+### Standard retriever benchmark: BEIR SciFact
+
+The retriever alone (no LLM, no judges) on the standard **BEIR SciFact**
+benchmark — 5,183 scientific abstracts, 300 test claims, expert qrels:
+
+| Retriever | nDCG@10 | MRR@10 | Recall@5 | Recall@10 |
+|---|---|---|---|---|
+| **rag-kit hybrid** (vector + fuzzy + FTS5) | **0.669** | **0.637** | **0.737** | **0.785** |
+| rag-kit vector-only (MiniLM local) | 0.641 | 0.599 | 0.723 | 0.787 |
+| rag-kit lexical-only (FTS5 + fuzzy) | 0.539 | 0.499 | 0.604 | 0.692 |
+
+Zero-shot nDCG@10 references: BM25 0.665, ColBERT 0.671, Contriever 0.677,
+SPLADE 0.699, BM25+CE 0.688, E5-PT_base 0.737. (Same-embedder browser
+benchmark: MiniLM semantic-only 0.607, MiniLM hybrid-RRF 0.694.)
+
+How to read it: with a free 22M-parameter local embedder (all-MiniLM-L6-v2,
+4-bit quantized), no fine-tuning and no external services, rag-kit's
+hybrid **beats the BM25 baseline and lands at ColBERT/Contriever level**.
+The hybrid adds +0.03 nDCG over vector-only and +0.13 over lexical-only —
+the fusion is doing real work. Trailers are retrieval-trained models
+(SPLADE/E5) — expected, they were trained for retrieval. Swap in a
+stronger embedder (qwen3-embedding-8b API or BGE-M3) for leaderboard-top
+scores; the local MiniLM path is the offline/private option.
+
+Reproduce: `cd benchmark && .venv/bin/python run_beir.py`
+(first run downloads BeIR/scifact ~30MB, indexes ~5 min, evaluates 300
+queries in ~1 min; later runs reuse the index).
+
 ### Embedding-fairness note (important)
 
 An earlier version of this benchmark ran rag-kit with **OpenRouter

@@ -1,0 +1,20 @@
+{
+  "dataset": "BeIR/scifact",
+  "corpus_docs": 5183,
+  "test_queries": 300,
+  "embedder": "all-MiniLM-L6-v2 (local, turbovec 4-bit)",
+  "indexing": "one abstract per chunk (doc-level retrieval)",
+  "metrics": {
+    "hybrid":  {"ndcg10": 0.6687, "mrr10": 0.6370, "r5": 0.737, "r10": 0.785},
+    "vector":  {"ndcg10": 0.6406, "mrr10": 0.5991, "r5": 0.723, "r10": 0.787},
+    "lexical": {"ndcg10": 0.5391, "mrr10": 0.4987, "r5": 0.604, "r10": 0.692}
+  },
+  "references_ndcg10": {
+    "BM25": 0.665, "ColBERT": 0.671, "Contriever": 0.677, "SPLADE": 0.699,
+    "BM25+CE": 0.688, "E5-PT_base": 0.737,
+    "MiniLM-L6 semantic-only (browser bench)": 0.607,
+    "MiniLM-L6 hybrid-RRF (browser bench)": 0.694
+  },
+  "run_date": "2026-08-26",
+  "command": "cd benchmark && .venv/bin/python run_beir.py"
+}
