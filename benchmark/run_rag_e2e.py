@@ -453,6 +453,15 @@ def run_squad(max_q: int | None = None, embed: str = "local",
               f"{sum(verifiers) / len(verifiers):.2f}"
               f" | gate skipped {sum(gates)}/{len(gates)} "
               f"({100 * sum(gates) / len(gates):.0f}%)")
+    # Self-learning TOC: how many chunk-derived entries the run's queries
+    # wrote (every examined chunk teaches the menu, even failed searches).
+    try:
+        from rag_kit._storage import LearnedToc
+        with rag._storage.session() as db:
+            lt_total = db.query(LearnedToc).count()
+        print(f"learned_toc entries (namespace): {lt_total}")
+    except Exception:
+        pass
     return {"em": sum(ems) / len(ems), "f1": sum(f1s) / len(f1s),
             "recall10": sum(recs) / len(recs), "n": len(questions)}
 
