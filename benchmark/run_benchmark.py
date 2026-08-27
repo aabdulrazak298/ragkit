@@ -158,7 +158,7 @@ def _restore_capture():
 def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
                out_dir: Path, model: str, async_mode: bool = False,
                terse: bool = False, embed: str = "api", toc_first: bool = False,
-               repeat_q: int = 0) -> dict:
+               repeat_q: int = 0, toc_ai_headings: bool = False) -> dict:
     from rag_kit import RAGSystem, LLMConfig
 
     _install_capture()
@@ -173,7 +173,8 @@ def run_ragkit(corpus_path: str, api_key: str, price: tuple[float, float],
     rag = RAGSystem(db_path=str(db),
                     llm_config=LLMConfig(model=model, temperature=TEMP, api_key=api_key,
                                          max_tokens=1024, reasoning=False),
-                    max_files=0, embed_backend=embed)
+                    max_files=0, embed_backend=embed,
+                    toc_ai_headings=toc_ai_headings)
 
     t0 = time.time()
     fid = rag.load_file(corpus_path, namespace="bench")
@@ -454,6 +455,10 @@ def main():
                     help="rag-kit embedding backend: api (OpenRouter qwen3-embedding-8b) or local (all-MiniLM-L6-v2)")
     ap.add_argument("--toc-first", action="store_true",
                     help="run rag-kit with the TOC-first pipeline (route -> heading selection -> targeted search)")
+    ap.add_argument("--toc-ai-headings", action="store_true",
+                    help="with TOC-first: generate chunk-derived TOC "
+                         "headings with the router model instead of the "
+                         "free deterministic heuristic")
     ap.add_argument("--repeat-q", type=int, default=0,
                     help="after the sync rag-kit run, re-ask the first N questions to measure query-cache hit latency")
     ap.add_argument("--only", choices=["ragkit", "llamaindex"], default=None)
@@ -496,11 +501,13 @@ def main():
         for async_mode, label in order:
             print(f"running rag-kit ({label}{', terse' if args.terse else ''}"
                   f"{', toc-first' if args.toc_first else ''}"
+                  f"{', AI-headings' if args.toc_ai_headings else ''}"
                   f"{', ' + args.embed if args.embed != 'api' else ''})...")
             results.append(run_ragkit(str(corpus_path), api_key, price, out_dir,
                                       args.model, async_mode=async_mode, terse=args.terse,
                                       embed=args.embed, toc_first=args.toc_first,
-                                      repeat_q=args.repeat_q))
+                                      repeat_q=args.repeat_q,
+                                      toc_ai_headings=args.toc_ai_headings))
             _save_partial()
     if args.only in (None, "llamaindex"):
         # LlamaIndex needs a .txt extension for its default reader

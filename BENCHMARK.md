@@ -230,6 +230,34 @@ paraphrase-heavy corpora just don't trigger it. For accuracy-first
 deployments the cost is worth it; for latency-sensitive serving, standard
 is the default. Per-query results: `benchmark/results/e2e_loop_{squad,crag}.json`.
 
+### Self-learning TOC: chunk-derived entries (deterministic vs AI headings)
+
+The TOC learns from every chunk a search PROCESSES — even failed searches
+(the AI examined the chunk, so the chunk teaches the menu). Headings come
+from one of two sources: a free deterministic extractor (first meaningful
+line) or the router model (`toc_ai_headings=True`, one batched call per
+query). Same-day A/B, same 20 questions, TOC-first + term expansion, local
+embeddings, qwen3.5-flash:
+
+| Mode (sync / async) | Accuracy | Retrieval | Latency | Cost/query |
+|---|---|---|---|---|
+| deterministic · sync | 19/20 (95%) | 20/20 | 6.86 s | $0.001045 |
+| **AI headings · sync** | **19/20 (95%)** | 20/20 | 7.66 s | $0.000978 |
+| deterministic · async | 19/20 (95%) | 20/20 | 7.15 s | $0.001032 |
+| AI headings · async | 18/20 (90%) | 20/20 | 7.79 s | $0.001037 |
+
+**Verdict:** accuracy is statistically identical (the Q10 miss is the
+known module-qualified-naming question every system misses; Q5 async is
+reader variance). AI headings add ~0.6-0.8 s/query (the batched router
+call) for the same cost. Their value is TOC QUALITY, not answer accuracy:
+on a noisy corpus (the sqlite3 RST) both extractors produce some junk
+entries, but AI headings produced cleaner labels overall ('DB-API 2.0
+Compliance' vs ':mod:`!sqlite3` --- db-api 2.0 interface...'). For
+accuracy-first deployments where the TOC is the navigation UI, the small
+latency is worth the structure; for speed mode, deterministic stays the
+default. Live TOC-learning demo: `benchmark/live_test_toc.py` (a failed
+query still teaches the menu).
+
 ### Embedding-fairness note (important)
 
 An earlier version of this benchmark ran rag-kit with **OpenRouter
