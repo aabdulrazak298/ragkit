@@ -58,6 +58,8 @@ def _chunk_to_heading(text: str, max_len: int = 70) -> str:
     back to the first ~max_len chars of the chunk when no clean line
     exists. Truncates at the first colon/comma so "Relief valve sizing
     formula: A = Q/(KP)" becomes a clean heading, not a formula dump.
+    Fragment lines (mid-sentence chunk starts like " a", "aps") are
+    skipped so chunk-boundary artifacts never pollute the TOC.
     """
     if not text:
         return ""
@@ -71,17 +73,35 @@ def _chunk_to_heading(text: str, max_len: int = 70) -> str:
             continue
         if re.match(r"^[\d\s\.\-_]+$", s):
             continue
+        # Skip fragment lines: a heading needs a real word sequence.
+        # Mid-sentence chunk starts (" a", "aps", "the") are chunk-boundary
+        # artifacts, not topics. A fragment is a line that is too short to
+        # be a sentence OR begins with a lowercase connector.
+        words = re.findall(r"[A-Za-z][A-Za-z0-9'-]*", s)
+        if len(words) < 2 and not re.search(r"[A-Z]", s):
+            continue
+        if len(s) < 6 and not re.search(r"[A-Z]", s):
+            continue
         first = s
         break
     if not first:
-        first = text.strip()
+        # No clean line — fall back to the longest alphabetic run.
+        words = re.findall(r"[A-Za-z][A-Za-z0-9'-]*", text)
+        first = " ".join(words[:6]) if words else text.strip()
     # Truncate at the first colon or comma — a heading should name the
     # topic, not carry the whole sentence (formulas, values, lists).
+    # Also cut at the first sentence end (". ") so "4 mA = 0% and 20 mA
+    # = 100%. Twisted pair..." becomes "4 mA = 0% and 20 mA = 100%",
+    # not a run-on.
     for sep in (":", "—", "–", ","):
         idx = first.find(sep)
         if idx > 5:  # keep short labels ("PID:") intact
             first = first[:idx]
             break
+    else:
+        idx = first.find(". ")
+        if 5 < idx < max_len:
+            first = first[:idx + 1]
     # Collapse whitespace and truncate on word boundary
     flat = re.sub(r"\s+", " ", first).strip()
     if len(flat) > max_len:
