@@ -50,6 +50,46 @@ def _content_tokens(text: str) -> set[str]:
             if t not in _VERIFIER_STOP and len(t) > 2}
 
 
+def _chunk_to_heading(text: str, max_len: int = 70) -> str:
+    """Derive a heading-like title from a chunk's first meaningful line.
+
+    Deterministic, no LLM call. Used to teach the TOC from chunks the
+    AI actually processed — even when the search found no answer. Falls
+    back to the first ~max_len chars of the chunk when no clean line
+    exists. Truncates at the first colon/comma so "Relief valve sizing
+    formula: A = Q/(KP)" becomes a clean heading, not a formula dump.
+    """
+    if not text:
+        return ""
+    first = ""
+    for line in text.split("\n"):
+        s = line.strip()
+        if not s:
+            continue
+        # Skip list markers / bullets / numbers-only lines
+        if s.startswith(("-", "*", "•", "|", "+")):
+            continue
+        if re.match(r"^[\d\s\.\-_]+$", s):
+            continue
+        first = s
+        break
+    if not first:
+        first = text.strip()
+    # Truncate at the first colon or comma — a heading should name the
+    # topic, not carry the whole sentence (formulas, values, lists).
+    for sep in (":", "—", "–", ","):
+        idx = first.find(sep)
+        if idx > 5:  # keep short labels ("PID:") intact
+            first = first[:idx]
+            break
+    # Collapse whitespace and truncate on word boundary
+    flat = re.sub(r"\s+", " ", first).strip()
+    if len(flat) > max_len:
+        cut = flat[:max_len].rsplit(" ", 1)[0]
+        flat = cut if cut else flat[:max_len]
+    return flat.strip().rstrip(".:;, ").capitalize()
+
+
 def _build_synthesis_prompt(info: dict, toc: str, chunks_text: list[str], question: str, terse: bool = False) -> list[str]:
     """Build the synthesis prompt for the standard query pipeline.
 
@@ -134,6 +174,16 @@ class Pipeline:
         # Step 1b: If nothing found, abstain — don't feed random chunks
         if not results:
             return "No relevant content found in the document.", []
+
+        # ── Teach the TOC from the chunks this search examined ──
+        # Recorded BEFORE trimming so headings derive from the FULL chunk
+        # text, not the query-centered snippet. Even a question the
+        # document can't answer still read top chunks; their headings
+        # become TOC entries for future queries.
+        try:
+            self._record_chunk_learnings(file_id, results)
+        except Exception:
+            pass  # learning is best-effort; never break the answer
 
         # Step 1c: Sentence-window trimming — keep only best sentences
         results = trim_chunks(results, question, text_key="text")
@@ -628,6 +678,16 @@ class Pipeline:
                         seen_chunks.add(key)
                         collected_texts.append(f"[chunk {ci}]\n{r['text']}")
 
+        # ── Teach the TOC from the chunks the executor actually read ──
+        # Even a search that finds NO answer still examined chunks — the
+        # knowledge isn't wasted, it becomes TOC entries a future query
+        # can route to. Recorded before synthesis so gave-up searches
+        # contribute too.
+        try:
+            self._record_chunk_learnings(file_id, _chunk_texts)
+        except Exception:
+            pass  # learning is best-effort; never break the answer
+
         # Check if searcher explicitly found nothing, or timed out/hit max turns with nothing
         searcher_gave_up = (
             "NO_RELEVANT_CONTENT_FOUND" in (searcher_answer or "").upper()
@@ -1003,6 +1063,15 @@ class Pipeline:
             if reranked:
                 collected = reranked
 
+        # ── Teach the TOC from the chunks this loop examined ──
+        # The loop may stop at max_loops / no_new_chunks without finding
+        # an answer — the chunks it read are still useful knowledge for
+        # future queries.
+        try:
+            self._record_chunk_learnings(file_id, collected)
+        except Exception:
+            pass  # learning is best-effort; never break the answer
+
         # ── Synthesise with the strong model (reasoning high) ─────────
         chunks_text = [
             f"[chunk {c['chunk_index']}]\n{c['text']}" for c in collected
@@ -1155,6 +1224,15 @@ class Pipeline:
         # Step 3: Context expansion
         expanded = self._expand_context(matched_chunks, mappings, file_id)
 
+        # ── Teach the TOC from the chunks this search examined ──
+        # TOC-first reads chunks via section-scoped + parallel full search;
+        # every one of those reads becomes a learned entry for future
+        # queries, even when the answer synthesis falls back later.
+        try:
+            self._record_chunk_learnings(file_id, expanded)
+        except Exception:
+            pass  # learning is best-effort; never break the answer
+
         # Step 4: LLM synthesis
         answer, citations = self._synthesize(
             question, expanded, mappings, info, config
@@ -1162,19 +1240,70 @@ class Pipeline:
 
         return answer, citations
 
+    def _record_chunk_learnings(
+        self, file_id: int, chunks: list[dict]
+    ) -> int:
+        """Teach the TOC from chunks the AI actually PROCESSED.
+
+        Every chunk examined during a search contributes a heading-like
+        entry anchored to its chunk range — even when the search found
+        no answer. The derived heading is deterministic (first meaningful
+        line), so the same chunk maps to the same entry and repeated
+        processing just bumps its hit count.
+
+        Args:
+            file_id: The file the chunks belong to.
+            chunks: list of dicts with 'chunk_index' and 'text' (as used
+                by seen_chunks / citations).
+
+        Returns:
+            Number of NEW entries recorded (bumped hits excluded).
+        """
+        if not chunks or not hasattr(self._storage, "learned_toc_add"):
+            return 0
+        new = 0
+        seen_headings: set[str] = set()
+        for c in chunks:
+            ci = c.get("chunk_index", c.get("index", 0))
+            text = c.get("text", "")
+            # Trimmed/partial text (starts with "…" or very short) gives a
+            # bad heading — prefer the FULL chunk from storage when the
+            # caller handed us a snippet.
+            if (not text or text.startswith("…")
+                    or len(text.split()) < 8):
+                chunk = self._storage.get_chunk(file_id, ci)
+                text = chunk["text"] if chunk else text
+            heading = _chunk_to_heading(text)
+            if not heading or heading in seen_headings:
+                continue
+            seen_headings.add(heading)
+            if self._storage.learned_toc_add(
+                file_id, heading, ci, ci, source="chunk"
+            ):
+                new += 1
+        return new
+
     def _learned_menu_entries(
         self, file_id: int, mappings: list[dict], limit: int = 20
     ) -> list[dict]:
         """Derive menu sub-entries from the query cache (self-updating menu).
 
-        Every past search stored (question → answer, citations); each
-        question becomes a TOC entry under the section that answered it,
-        e.g. 'Return policy → [learned] can i return this item?'. The
-        entry carries the answered chunk range so targeted search goes
-        straight there.
+        Two learning sources merge into the menu:
+        1. Question-derived: every past search stored (question → answer,
+           citations); each question becomes a TOC entry under the section
+           that answered it, e.g. 'Return policy → [learned] can i return
+           this item?'.
+        2. Chunk-derived: every chunk the AI PROCESSED during a search
+           (even unanswered ones) contributes a heading anchored to its
+           chunk range — so a future, DIFFERENT query can route to
+           knowledge the system already examined.
+
+        Entries carry the chunk range so targeted search goes straight
+        there.
         """
-        qs = self._storage.cache_questions(f"file:{file_id}", limit=limit)
         entries = []
+        # ── Source 1: question-derived (existing behavior) ────────────
+        qs = self._storage.cache_questions(f"file:{file_id}", limit=limit)
         for q in qs:
             parent = None
             for m in mappings:
@@ -1194,6 +1323,34 @@ class Pipeline:
                 "level": (parent["level"] + 1) if parent else 3,
                 "learned": True,
                 "hits": q["hits"],
+                "source": "question",
+            })
+        # ── Source 2: chunk-derived (new — the AI's examined chunks) ──
+        chunk_entries = (
+            self._storage.learned_toc_list(file_id, limit=limit)
+            if hasattr(self._storage, "learned_toc_list") else []
+        )
+        for ce in chunk_entries:
+            parent = None
+            for m in mappings:
+                if m["chunk_start"] <= ce["chunk_start"] <= m["chunk_end"]:
+                    parent = m
+                    break
+            heading = ce["heading"]
+            path = heading
+            if parent:
+                path = f"{parent['hierarchical_path']} → {heading}"
+            entries.append({
+                "hierarchical_path": f"[chunk] {path}",
+                "title": heading,
+                "heading": heading,
+                "_parent_title": parent["title"] if parent else None,
+                "chunk_start": ce["chunk_start"],
+                "chunk_end": ce["chunk_end"],
+                "level": (parent["level"] + 1) if parent else 3,
+                "learned": True,
+                "hits": ce["hits"],
+                "source": "chunk",
             })
         return entries
 

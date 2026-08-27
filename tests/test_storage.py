@@ -163,3 +163,56 @@ def test_content_hash():
     assert h1 == h2
     assert h1 != h3
     assert len(h1) == 64  # SHA-256 hex digest
+
+
+def test_learned_toc_add_and_list(tmp_db):
+    storage = Storage(tmp_db)
+    fid = _create_test_file(storage)
+
+    assert storage.learned_toc_stats(fid)["entries"] == 0
+    assert storage.learned_toc_list(fid) == []
+
+    # New entry
+    added = storage.learned_toc_add(fid, "Safety procedures", 0, 0)
+    assert added is True
+    assert storage.learned_toc_stats(fid)["entries"] == 1
+
+    # Upsert same heading — bumps hits, does not duplicate
+    added = storage.learned_toc_add(fid, "Safety procedures", 0, 0)
+    assert added is False
+    assert storage.learned_toc_stats(fid)["entries"] == 1
+
+    # Second distinct entry
+    storage.learned_toc_add(fid, "Maintenance schedule", 1, 1)
+    entries = storage.learned_toc_list(fid)
+    assert len(entries) == 2
+    by_heading = {e["heading"]: e for e in entries}
+    assert by_heading["Safety procedures"]["hits"] == 2
+    assert by_heading["Maintenance schedule"]["hits"] == 1
+    assert by_heading["Safety procedures"]["chunk_start"] == 0
+    assert by_heading["Safety procedures"]["source"] == "chunk"
+
+
+def test_learned_toc_scoped_per_file(tmp_db):
+    storage = Storage(tmp_db)
+    f1 = _create_test_file(storage, namespace="a")
+    f2 = _create_test_file(storage, namespace="b")
+
+    storage.learned_toc_add(f1, "Heading A", 0, 0)
+    storage.learned_toc_add(f2, "Heading B", 1, 1)
+
+    assert len(storage.learned_toc_list(f1)) == 1
+    assert len(storage.learned_toc_list(f2)) == 1
+    assert storage.learned_toc_list(f1)[0]["heading"] == "Heading A"
+    assert storage.learned_toc_list(f2)[0]["heading"] == "Heading B"
+
+
+def test_learned_toc_cascade_delete(tmp_db):
+    storage = Storage(tmp_db)
+    fid = _create_test_file(storage)
+    storage.learned_toc_add(fid, "Heading", 0, 0)
+    assert storage.learned_toc_stats(fid)["entries"] == 1
+
+    storage.delete_file(fid)
+    # Cascade should remove the learned entries with the file
+    assert storage.learned_toc_stats(fid)["entries"] == 0

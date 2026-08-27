@@ -60,6 +60,9 @@ class RAGFile(Base):
     chunks = relationship(
         "RAGChunk", back_populates="file", cascade="all, delete-orphan"
     )
+    learned_toc = relationship(
+        "LearnedToc", back_populates="file", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_rag_files_namespace", namespace),
@@ -139,6 +142,40 @@ class QueryCache(Base):
         Index("idx_query_cache_scope", scope),
         Index("idx_query_cache_scope_qnorm", scope, qnorm, unique=True),
     )
+
+
+class LearnedToc(Base):
+    """Chunk-derived TOC entries — headings learned from chunks the AI
+    actually PROCESSED during a search, whether or not the search found
+    an answer.
+
+    Unlike QueryCache (question → answer), this stores *content* → heading:
+    every chunk read by a search contributes a heading-like entry anchored
+    to its chunk range, so the TOC grows from what was examined, not just
+    from what was answered. A future query — even a different one — can
+    route to these entries instead of re-scanning from scratch.
+    """
+
+    __tablename__ = "learned_toc"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    file_id = Column(
+        Integer, ForeignKey("rag_files.id", ondelete="CASCADE"), nullable=False
+    )
+    heading = Column(Text, nullable=False)  # heading-form title of the chunk
+    chunk_start = Column(Integer, nullable=False)
+    chunk_end = Column(Integer, nullable=False)
+    source = Column(String(32), nullable=False, default="chunk")  # chunk|question
+    hits = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, nullable=False)
+    last_hit_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_learned_toc_file", file_id),
+        Index("idx_learned_toc_file_heading", file_id, heading, unique=True),
+    )
+
+    file = relationship("RAGFile", back_populates="learned_toc")
 
 
 # ── FTS5 setup (SQLite only) ──────────────────────────────────────────
@@ -664,6 +701,84 @@ class Storage:
                     "hits": r.hits,
                 })
             return out
+
+    def learned_toc_add(
+        self,
+        file_id: int,
+        heading: str,
+        chunk_start: int,
+        chunk_end: int,
+        source: str = "chunk",
+    ) -> bool:
+        """Record a chunk-derived TOC entry (upsert, hit bump).
+
+        Every processed chunk contributes a heading — even when the
+        search found no answer — so the TOC learns from what the AI
+        examined, not just from what it answered. Same (file_id,
+        heading) bumps hits and keeps the first-seen chunk anchor.
+        """
+        now = datetime.now(_UTC)
+        with self.session() as db:
+            rec = (
+                db.query(LearnedToc)
+                .filter(
+                    LearnedToc.file_id == file_id,
+                    LearnedToc.heading == heading,
+                )
+                .first()
+            )
+            if rec is not None:
+                rec.hits += 1
+                rec.last_hit_at = now
+                db.commit()
+                return False  # existed — bumped
+            db.add(
+                LearnedToc(
+                    file_id=file_id,
+                    heading=heading,
+                    chunk_start=chunk_start,
+                    chunk_end=chunk_end,
+                    source=source,
+                    hits=1,
+                    created_at=now,
+                    last_hit_at=now,
+                )
+            )
+            db.commit()
+            return True  # new entry
+
+    def learned_toc_list(
+        self, file_id: int, limit: int = 50
+    ) -> list[dict]:
+        """Chunk-derived TOC entries for a file (most-asked first)."""
+        with self.session() as db:
+            rows = (
+                db.query(LearnedToc)
+                .filter(LearnedToc.file_id == file_id)
+                .order_by(LearnedToc.hits.desc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "heading": r.heading,
+                    "chunk_start": r.chunk_start,
+                    "chunk_end": r.chunk_end,
+                    "source": r.source,
+                    "hits": r.hits,
+                }
+                for r in rows
+            ]
+
+    def learned_toc_stats(self, file_id: int) -> dict:
+        """Count chunk-derived TOC entries for a file."""
+        with self.session() as db:
+            total = (
+                db.query(LearnedToc)
+                .filter(LearnedToc.file_id == file_id)
+                .count()
+            )
+            return {"entries": total}
 
     # ── Section Mappings ────────────────────────────────────────────
 
