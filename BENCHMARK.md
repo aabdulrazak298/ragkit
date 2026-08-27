@@ -234,31 +234,38 @@ is the default. Per-query results: `benchmark/results/e2e_loop_{squad,crag}.json
 
 **HotpotQA dev, distractor setting** (first 100 questions; each has 10
 context paragraphs, exactly 2 are gold supporting facts; questions are
-multi-hop — bridge + comparison):
+multi-hop — bridge + comparison). Two readers, same retrieval:
 
-| Metric | Standard | Loop |
-|---|---|---|
-| both-gold@10 (multi-hop retrieval) | 0.950 | **0.990** |
-| one-gold@10 | 1.000 | 1.000 |
-| EM | 0.570 | **0.580** |
-| F1 | 0.690 | **0.709** |
-| Latency | 0.63 s/query | 1.67 s/query |
+| Reader · mode | EM | F1 | both-gold@10 | Latency |
+|---|---|---|---|---|
+| qwen3.5-flash · standard | 0.570 | 0.690 | 0.950 | 0.63 s |
+| qwen3.5-flash · loop | 0.580 | 0.709 | 0.990 | 1.67 s |
+| deepseek-v4-flash (thinking) · standard | 0.620 | 0.675 | 0.950 | 1.99 s |
+| **deepseek-v4-flash (thinking) · loop** | **0.680** | **0.755** | 0.990 | 2.57 s |
 
-**This is the cleanest demonstration of the loop's value.** Single-shot
-finds ONE gold paragraph on every question (one-gold@10 = 1.000) but
-misses the SECOND on 5/100 (both-gold@10 = 0.950). The loop's verifier
-flags insufficiency and re-searches with the bridge entity discovered in
+**Reader effect >> retrieval effect on multi-hop.** DeepSeek V4 flash
+(thinking) standard (EM 0.620) beats qwen3.5-flash loop (EM 0.580) — the
+model matters more than the strategy. They stack: **loop + DeepSeek
+scores EM 0.680 / F1 0.755**, +10pp EM and +4.6pp F1 over qwen loop.
+both-gold@10 is identical across readers (0.950 / 0.990) — the loop's
+multi-hop retrieval gain is reader-independent; answer quality is
+model-bound. DeepSeek costs ~2-2.6 s/query (thinking mode, ~3× qwen).
+
+**The loop's multi-hop rescue** (reader-independent): single-shot finds
+ONE gold paragraph on every question (one-gold@10 = 1.000) but misses
+the SECOND on 5/100 (both-gold@10 = 0.950). The loop's verifier flags
+insufficiency and re-searches with the bridge entity discovered in
 paragraph 1 — recovering the second hop on **4 of the 5 misses**
 (Q16 'America East Conference', Q18 'Richard Nixon', Q74 'Bill Clinton',
 Q96 'Viglen'). Those are named entities the QUESTION does not contain, so
 no single-shot query can find them; only iterative retrieval can. The
 remaining miss (Q47) is the verifier's known failure mode (false
-"sufficient"). EM +1.0pp, F1 +1.9pp, both-gold +4.0pp at 2.6× latency.
+"sufficient").
 
 Reproduce: `cd benchmark && .venv/bin/python run_rag_e2e.py --dataset
-hotpot --max-q 100 --mode both` (downloads
-`hotpot_dev_distractor_v1.json` ~46MB first run; RAGLAB mirror).
-Results: `benchmark/results/e2e_loop_hotpot.json`.
+hotpot --max-q 100 --mode both [--model deepseek/deepseek-v4-flash]`
+(downloads `hotpot_dev_distractor_v1.json` ~46MB first run; RAGLAB
+mirror). Results: `benchmark/results/e2e_loop_hotpot.json` (+ `_ds.json`).
 
 ### Self-learning TOC: chunk-derived entries (deterministic vs AI headings)
 
