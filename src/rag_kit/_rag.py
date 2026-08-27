@@ -100,6 +100,7 @@ class RAGSystem:
         embed_backend: str = "api",
         use_cache: bool = True,
         cache_fuzzy: float | None = 0.90,
+        toc_ai_headings: bool = False,
     ):
         self._storage = Storage(db_path)
         self._chunk_size = default_chunk_size or DEFAULT_CHUNK_SIZE
@@ -115,6 +116,7 @@ class RAGSystem:
             self._storage, llm_config,
             search_threshold=self._threshold,
             vector_index=self._vector_index,
+            toc_ai_headings=toc_ai_headings,
         )
 
     def set_llm_config(self, llm_config: LLMConfig | None) -> None:

@@ -506,3 +506,91 @@ def test_learned_menu_merges_chunk_entries(monkeypatch):
     chunk_entry = next(e for e in entries if e["source"] == "chunk")
     assert chunk_entry["heading"] == "Relief valve sizing formula"
     assert chunk_entry["hits"] == 1
+
+
+# ── AI-generated TOC headings (toc_ai_headings=True) ──────────────────
+
+
+def test_ai_headings_used_when_enabled(monkeypatch):
+    """toc_ai_headings=True: the router model generates the headings."""
+    p, storage, fid = _real_pipeline_with_chunks([
+        "Relief valve sizing formula: A = Q / (K * P).",
+        "Thermal expansion rate for steam lines is 0.12 mm/m.",
+    ])
+    p._toc_ai_headings = True
+    ai_calls = {"n": 0}
+
+    def fake_json(messages, model=None):
+        ai_calls["n"] += 1
+        # Router model returns structured headings — note chunk 0 gets a
+        # MEANINGFUL heading, not the first-line truncation.
+        return {"headings": [
+            {"chunk_index": 0, "heading": "Relief valve sizing — "
+                                          "orifice area formula"},
+            {"chunk_index": 1, "heading": "Steam line thermal expansion"},
+        ]}
+
+    monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
+
+    n = p._record_chunk_learnings(fid, [
+        {"chunk_index": 0, "text": "Relief valve sizing formula: "
+                                   "A = Q / (K * P)."},
+        {"chunk_index": 1, "text": "Thermal expansion rate for steam "
+                                   "lines is 0.12 mm/m."},
+    ])
+
+    assert n == 2
+    assert ai_calls["n"] == 1  # ONE batched call, not per chunk
+    learned = storage.learned_toc_list(fid)
+    headings = {e["heading"] for e in learned}
+    assert "Relief valve sizing — orifice area formula" in headings
+    assert "Steam line thermal expansion" in headings
+
+
+def test_ai_headings_fallback_to_deterministic(monkeypatch):
+    """If the AI call fails/returns garbage, deterministic headings are
+    still recorded — learning never breaks."""
+    p, storage, fid = _real_pipeline_with_chunks([
+        "Relief valve sizing formula: A = Q / (K * P).",
+    ])
+    p._toc_ai_headings = True
+
+    def fake_json(messages, model=None):
+        raise RuntimeError("router down")
+
+    monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
+
+    n = p._record_chunk_learnings(fid, [
+        {"chunk_index": 0, "text": "Relief valve sizing formula: "
+                                   "A = Q / (K * P)."},
+    ])
+
+    assert n == 1
+    learned = storage.learned_toc_list(fid)
+    assert learned[0]["heading"] == "Relief valve sizing formula"
+    assert learned[0]["source"] == "chunk"
+
+
+def test_ai_headings_off_uses_deterministic(monkeypatch):
+    """Default (flag off): deterministic headings, NO AI call."""
+    p, storage, fid = _real_pipeline_with_chunks([
+        "Relief valve sizing formula: A = Q / (K * P).",
+    ])
+    ai_calls = {"n": 0}
+
+    def fake_json(messages, model=None):
+        ai_calls["n"] += 1
+        return {"headings": [{"chunk_index": 0,
+                              "heading": "AI generated"}]}
+
+    monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
+
+    n = p._record_chunk_learnings(fid, [
+        {"chunk_index": 0, "text": "Relief valve sizing formula: "
+                                   "A = Q / (K * P)."},
+    ])
+
+    assert n == 1
+    assert ai_calls["n"] == 0  # no AI call when flag off
+    learned = storage.learned_toc_list(fid)
+    assert learned[0]["heading"] == "Relief valve sizing formula"

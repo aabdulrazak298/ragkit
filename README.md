@@ -33,6 +33,11 @@ print(result.answer)
   retrieval with a cheap sufficiency verifier), agentic
   (planner→executor→synthesizer), TOC-first (maps questions to document
   sections)
+- **Self-learning TOC** — every chunk the AI examines teaches the menu a
+  heading (even when the search finds no answer); headings are
+  deterministic (free) by default or AI-generated with
+  `toc_ai_headings=True` (one batched router-model call per query for
+  meaningful, structured labels)
 - **Deterministic and cheap** — retrieval is local; LLM only synthesizes the answer
 - **SQLite-only storage** — FTS5 indexes, blake3 dedup, namespaces, LRU eviction
 - **Built-in metrics** — QueryMetrics tracks latency, turns, dedups, escalations
