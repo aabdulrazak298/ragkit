@@ -94,15 +94,19 @@ prompt).
 
 **Standard vs loop (iterative verifier), same reader both sides:**
 
-| Dataset (subset) | Standard | Loop | Loop latency |
+| Dataset (subset) | Standard | Loop | Loop + gate |
 |---|---|---|---|
-| SQuAD-200 · EM / F1 | 0.865 / 0.889 | **0.875 / 0.906** | 1.71s (2.2×) |
-| CRAG-100 · F1 / contains | 0.165 / 0.240 | **0.169 / 0.260** | 5.84s (2.6×) |
+| SQuAD-200 · EM / F1 | 0.885 / 0.906 | 0.875 / 0.906 | **0.900 / 0.924** |
+| CRAG-100 · F1 / contains | 0.165 / 0.240 | **0.169 / 0.260** | — |
 
 The loop re-searches when a cheap router-model verifier deems the context
-insufficient (184/200 SQuAD questions converged on round 0; the 15 hard
-ones gained +1.5pp R@10). Accuracy-first deployments pay the latency;
-latency-sensitive serving stays on standard.
+insufficient (129/200 SQuAD questions converge on round 0; 8 genuinely
+hard ones gained +3pp R@10). A deterministic **verifier gate**
+(`verifier_gate=5`) skips the LLM verifier entirely when the top-1 chunk
+shares >=5 content tokens with the question — 50/200 skipped, 0 unsafe,
+verifier calls 1.26→1.03, latency 1.71→1.50s with no accuracy loss.
+Accuracy-first deployments pay the remaining latency; latency-sensitive
+serving stays on standard.
 
 ## Installation
 

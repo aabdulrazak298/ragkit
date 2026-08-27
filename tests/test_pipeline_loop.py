@@ -233,3 +233,95 @@ def test_loop_cap_boundary_at_10_respects_lower_value(monkeypatch):
 
     assert metrics["loops"] == 3
     assert metrics["stop_reason"] == "max_loops"
+
+
+def test_loop_gate_skips_verifier_when_evidence_strong(monkeypatch):
+    """verifier_gate fires -> LLM verifier is never called."""
+    calls = {"verify": 0}
+
+    class _RichStorage(_FakeStorage):
+        def get_chunk(self, file_id, index):
+            return {"text": f"The pressure sensor range is 150 psi. "
+                            f"(chunk {index})"}
+
+    p = _make_pipeline(_RichStorage())
+
+    def fake_search(storage=None, query=None, **kw):
+        return [{"chunk_index": 3, "score": 0.85, "source": "fts5",
+                 "text": "The pressure sensor range is 150 psi."}]
+
+    def fake_json(messages, model=None):
+        calls["verify"] += 1
+        return {"sufficient": True, "next_terms": []}
+
+    def fake_chat(messages, config=None, timeout=120):
+        return "150 psi."
+
+    monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
+    monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
+    monkeypatch.setattr(pipeline_mod, "chat_completion", fake_chat)
+
+    _, _, metrics = p.query_loop(1, "what pressure sensor?",
+                                 verifier_gate=2)
+
+    assert calls["verify"] == 0
+    assert metrics["stop_reason"] == "score_confident"
+    assert metrics["gate_skipped"] is True
+    assert metrics["verifier_calls"] == 0
+
+
+def test_loop_gate_not_fired_still_verifies(monkeypatch):
+    """Low content-token overlap -> gate does NOT fire, verifier runs."""
+    p = _make_pipeline()
+    calls = {"verify": 0}
+
+    # Top-1 chunk shares NO content tokens with the question ("manual
+    # overload protection" vs "pneumatic valve").
+    def fake_search(storage=None, query=None, **kw):
+        return [{"chunk_index": 7, "score": 0.6, "source": "fts5",
+                 "text": "manual overload protection circuit"}]
+
+    def fake_json(messages, model=None):
+        calls["verify"] += 1
+        return {"sufficient": True, "next_terms": []}
+
+    def fake_chat(messages, config=None, timeout=120):
+        return "answer"
+
+    monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
+    monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
+    monkeypatch.setattr(pipeline_mod, "chat_completion", fake_chat)
+
+    _, _, metrics = p.query_loop(1, "pneumatic valve", verifier_gate=3)
+
+    assert calls["verify"] == 1
+    assert metrics["stop_reason"] == "verified_sufficient"
+    assert metrics["gate_skipped"] is False
+    assert metrics["verifier_calls"] == 1
+
+
+def test_loop_gate_default_off(monkeypatch):
+    """verifier_gate=None (default) -> always verify, no fast-path."""
+    p = _make_pipeline()
+    calls = {"verify": 0}
+
+    def fake_search(storage=None, query=None, **kw):
+        return [{"chunk_index": 1, "score": 0.9, "source": "fts5",
+                 "text": "the quick brown fox jumps over"}]
+
+    def fake_json(messages, model=None):
+        calls["verify"] += 1
+        return {"sufficient": True, "next_terms": []}
+
+    def fake_chat(messages, config=None, timeout=120):
+        return "answer"
+
+    monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
+    monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
+    monkeypatch.setattr(pipeline_mod, "chat_completion", fake_chat)
+
+    _, _, metrics = p.query_loop(1, "the quick brown fox")
+
+    assert calls["verify"] == 1
+    assert metrics["gate_skipped"] is False
+    assert metrics["stop_reason"] == "verified_sufficient"

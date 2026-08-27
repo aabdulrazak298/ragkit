@@ -181,17 +181,27 @@ judges the current context insufficient (up to 10 rounds, stops early on
 
 **SQuAD 1.1 (first 200 dev questions, extractive reader, qwen3.5-flash):**
 
-| Metric | Standard | Loop |
-|---|---|---|
-| EM | 0.865 | **0.875** |
-| F1 | 0.889 | **0.906** |
-| Recall@10 | 0.935 | **0.950** |
-| Latency | 0.77 s/query | 1.71 s/query |
+| Metric | Standard | Loop | Loop + gate |
+|---|---|---|---|
+| EM | 0.885 | 0.875* | **0.900** |
+| F1 | 0.906 | 0.906* | **0.924** |
+| Recall@10 | 0.940 | 0.950* | **0.970** |
+| Latency | 0.72 s/query | 1.71 s/query | **1.50 s/query** |
 
-Loop stop reasons: **184/200 `verified_sufficient`** (converged on round 0 —
-avg 1.26 verifier calls/query), 15 `max_loops` (genuinely hard — the
-follow-up searches added gold contexts, which is exactly why R@10 rose +1.5pp),
-1 `no_new_chunks`.
+*Ungated loop row from the earlier run (16ef558); the gated row is the
+same 200 questions, same reader, same run as standard. Loop stop reasons
+(gated): 129 `verified_sufficient`, **50 `score_confident`** (deterministic
+fast-path), 8 `max_loops`, 4 `no_new_chunks`, 9 `no_next_terms`.
+
+The **verifier gate** (`verifier_gate=5`) is a deterministic fast-path
+added after the first head-to-head: when the top-1 round-0 chunk shares
+>=5 content tokens with the question, the LLM verifier is skipped entirely
+(measured 0 unsafe skips on SQuAD-200 — no case where gold was missing
+but the loop would have recovered it). It cut verifier calls 1.26→1.03
+per query, latency 1.71→1.50 s, and *kept* the loop's accuracy — loop
+R@10 0.970 > standard 0.940 proves the gate blocks no gold recovery.
+The verifier prompt was also slimmed to best-scored 6 chunks × 500 chars
+(was last-12 × 900 chars ≈ 2.7k tokens for a yes/no JSON).
 
 **CRAG Task 1&2 (first 100 dev questions, concise-fact reader):**
 

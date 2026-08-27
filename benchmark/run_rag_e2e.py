@@ -308,7 +308,9 @@ def answer_reader(rag, llm_cfg, question: str, ns: str, top_k: int = 10,
 
 def answer_reader_loop(rag, llm_cfg, question: str, ns: str,
                        max_loops: int = 3, top_k: int = 10,
-                       mode: str = "extract") -> tuple[str, list[dict], dict]:
+                       mode: str = "extract",
+                       verifier_gate: int | None = None,
+                       ) -> tuple[str, list[dict], dict]:
     """Loop reader: iterative retrieval (retrieve_loop) then the SAME fixed
     reader prompt as answer_reader — isolates retrieval quality from
     synthesis. Returns (prediction, collected_chunks, loop_metrics)."""
@@ -316,7 +318,8 @@ def answer_reader_loop(rag, llm_cfg, question: str, ns: str,
 
     pipe = Pipeline(rag._storage, llm_cfg, vector_index=rag._vector_index)
     collected, metrics = pipe.retrieve_loop(
-        question, namespace=ns, max_loops=max_loops, top_k=top_k)
+        question, namespace=ns, max_loops=max_loops, top_k=top_k,
+        verifier_gate=verifier_gate)
     ctx = [c["text"] for c in collected]
     return _reader_from_chunks(llm_cfg, question, ctx, mode), collected, metrics
 
@@ -377,7 +380,8 @@ def _ensure_env_key() -> None:
 # ── Benchmark runners ───────────────────────────────────────────────────
 
 def run_squad(max_q: int | None = None, embed: str = "local",
-              force_reindex: bool = False, mode: str = "standard"):
+              force_reindex: bool = False, mode: str = "standard",
+              verifier_gate: int | None = None):
     from rag_kit import RAGSystem, LLMConfig
     from rag_kit._search import search as search_chunks
 
@@ -403,21 +407,23 @@ def run_squad(max_q: int | None = None, embed: str = "local",
     else:
         fid_to_ctx = _index_paragraphs(rag, corpus, "squad")
 
-    ems, f1s, recs, lat, stop_reasons, loop_counts, verifiers = (
-        [], [], [], [], [], [], [])
+    ems, f1s, recs, lat, stop_reasons, loop_counts, verifiers, gates = (
+        [], [], [], [], [], [], [], [])
     t0 = time.time()
     for i, qa in enumerate(questions):
         q = qa["question"]
         qs = time.time()
         if mode == "loop":
             pred, collected, lm = answer_reader_loop(
-                rag, llm_cfg, q, "squad", max_loops=3, mode="extract")
+                rag, llm_cfg, q, "squad", max_loops=3, mode="extract",
+                verifier_gate=verifier_gate)
             hit_fids = {c.get("file_id") for c in collected}
             rec = 1.0 if any(qa["context"] == fid_to_ctx.get(f)
                              for f in hit_fids) else 0.0
             stop_reasons.append(lm.get("stop_reason", ""))
             loop_counts.append(lm.get("loops", 0))
             verifiers.append(lm.get("verifier_calls", 0))
+            gates.append(bool(lm.get("gate_skipped")))
         else:
             rows = search_chunks(rag._storage, query=q, namespace="squad",
                                  top_k=10, vector_index=rag._vector_index)
@@ -444,7 +450,9 @@ def run_squad(max_q: int | None = None, embed: str = "local",
         print("stop reasons:", dict(Counter(stop_reasons)))
         print(f"avg loops {sum(loop_counts) / len(loop_counts):.2f} "
               f"| avg verifier calls "
-              f"{sum(verifiers) / len(verifiers):.2f}")
+              f"{sum(verifiers) / len(verifiers):.2f}"
+              f" | gate skipped {sum(gates)}/{len(gates)} "
+              f"({100 * sum(gates) / len(gates):.0f}%)")
     return {"em": sum(ems) / len(ems), "f1": sum(f1s) / len(f1s),
             "recall10": sum(recs) / len(recs), "n": len(questions)}
 
@@ -586,13 +594,18 @@ if __name__ == "__main__":
                     help="retrieval strategy: single-shot (standard), "
                          "iterative verifier loop (loop), or both on the "
                          "same subset for a head-to-head")
+    ap.add_argument("--verifier-gate", type=int, default=None,
+                    help="loop-mode deterministic fast-path: skip the LLM "
+                         "verifier when the top-1 round-0 chunk shares >= N "
+                         "content tokens with the question (SQuAD-calibrated "
+                         "safe threshold 5; None = always verify)")
     args = ap.parse_args()
     if args.dataset == "squad":
         if args.mode == "both":
             r1 = run_squad(args.max_q, args.embed, args.force_reindex,
                            mode="standard")
             r2 = run_squad(args.max_q, args.embed, args.force_reindex,
-                           mode="loop")
+                           mode="loop", verifier_gate=args.verifier_gate)
             print("\n=== SQuAD head-to-head ===")
             print(f"  standard: EM {r1['em']:.3f}  F1 {r1['f1']:.3f}  "
                   f"R@10 {r1['recall10']:.3f}  (n={r1['n']})")
@@ -600,7 +613,7 @@ if __name__ == "__main__":
                   f"R@10 {r2['recall10']:.3f}  (n={r2['n']})")
         else:
             run_squad(args.max_q, args.embed, args.force_reindex,
-                      mode=args.mode)
+                      mode=args.mode, verifier_gate=args.verifier_gate)
     else:
         if args.mode == "both":
             r1 = run_crag(args.max_q, args.embed, args.force_reindex,
