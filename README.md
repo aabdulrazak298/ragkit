@@ -87,7 +87,10 @@ with DeepSeek V4 flash (thinking) — vs the paper's best baseline
 answer quality, not judge leniency.
 
 Reproduce: `benchmark/run_benchmark.py`, `benchmark/run_beir.py`,
-`benchmark/run_rag_e2e.py`.
+`benchmark/run_rag_e2e.py`. The e2e harness supports a head-to-head
+retrieval-strategy comparison on the same subset:
+`--mode both` (single-shot vs iterative-verifier loop, same reader
+prompt).
 
 ## Installation
 

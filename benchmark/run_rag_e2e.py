@@ -303,6 +303,29 @@ def answer_reader(rag, llm_cfg, question: str, ns: str, top_k: int = 10,
             text = c["text"] if c else ""
         if text:
             ctx.append(text)
+    return _reader_from_chunks(llm_cfg, question, ctx, mode)
+
+
+def answer_reader_loop(rag, llm_cfg, question: str, ns: str,
+                       max_loops: int = 3, top_k: int = 10,
+                       mode: str = "extract") -> tuple[str, list[dict], dict]:
+    """Loop reader: iterative retrieval (retrieve_loop) then the SAME fixed
+    reader prompt as answer_reader — isolates retrieval quality from
+    synthesis. Returns (prediction, collected_chunks, loop_metrics)."""
+    from rag_kit._pipeline import Pipeline
+
+    pipe = Pipeline(rag._storage, llm_cfg, vector_index=rag._vector_index)
+    collected, metrics = pipe.retrieve_loop(
+        question, namespace=ns, max_loops=max_loops, top_k=top_k)
+    ctx = [c["text"] for c in collected]
+    return _reader_from_chunks(llm_cfg, question, ctx, mode), collected, metrics
+
+
+def _reader_from_chunks(llm_cfg, question: str, ctx: list[str],
+                        mode: str = "extract") -> str:
+    """Shared reader prompt over already-retrieved chunk texts."""
+    from rag_kit._llm import chat_completion
+
     if not ctx:
         return "NOT_FOUND"
     joined = "\n\n".join(ctx)
@@ -337,13 +360,28 @@ def _api_key() -> str:
     return os.environ.get("OPENROUTER_KEY", "")
 
 
+def _ensure_env_key() -> None:
+    """Export OPENROUTER_KEY to the environment if only ~/api/.env has it.
+
+    The loop-mode verifier (json_completion/router_completion) reads the
+    key from os.environ, NOT from LLMConfig — without this export every
+    verifier call silently returns {} and the loop degrades to a
+    single-shot top-k search with no verification at all."""
+    if os.environ.get("OPENROUTER_KEY"):
+        return
+    v = _api_key()
+    if v:
+        os.environ["OPENROUTER_KEY"] = v
+
+
 # ── Benchmark runners ───────────────────────────────────────────────────
 
 def run_squad(max_q: int | None = None, embed: str = "local",
-              force_reindex: bool = False):
+              force_reindex: bool = False, mode: str = "standard"):
     from rag_kit import RAGSystem, LLMConfig
     from rag_kit._search import search as search_chunks
 
+    _ensure_env_key()
     corpus, questions = fetch_squad()
     if max_q:
         questions = questions[:max_q]
@@ -365,30 +403,48 @@ def run_squad(max_q: int | None = None, embed: str = "local",
     else:
         fid_to_ctx = _index_paragraphs(rag, corpus, "squad")
 
-    ems, f1s, recs, lat = [], [], [], []
+    ems, f1s, recs, lat, stop_reasons, loop_counts, verifiers = (
+        [], [], [], [], [], [], [])
     t0 = time.time()
     for i, qa in enumerate(questions):
         q = qa["question"]
         qs = time.time()
-        rows = search_chunks(rag._storage, query=q, namespace="squad",
-                             top_k=10, vector_index=rag._vector_index)
-        hit_fids = {r["file_id"] for r in rows}
-        rec = 1.0 if any(qa["context"] == fid_to_ctx.get(f) for f in hit_fids) else 0.0
-        pred = answer_reader(rag, llm_cfg, q, "squad", mode="extract")
+        if mode == "loop":
+            pred, collected, lm = answer_reader_loop(
+                rag, llm_cfg, q, "squad", max_loops=3, mode="extract")
+            hit_fids = {c.get("file_id") for c in collected}
+            rec = 1.0 if any(qa["context"] == fid_to_ctx.get(f)
+                             for f in hit_fids) else 0.0
+            stop_reasons.append(lm.get("stop_reason", ""))
+            loop_counts.append(lm.get("loops", 0))
+            verifiers.append(lm.get("verifier_calls", 0))
+        else:
+            rows = search_chunks(rag._storage, query=q, namespace="squad",
+                                 top_k=10, vector_index=rag._vector_index)
+            hit_fids = {r["file_id"] for r in rows}
+            rec = 1.0 if any(qa["context"] == fid_to_ctx.get(f)
+                             for f in hit_fids) else 0.0
+            pred = answer_reader(rag, llm_cfg, q, "squad", mode="extract")
         ems.append(em_score(pred, qa["answers"]))
         f1s.append(f1_score(pred, qa["answers"]))
         recs.append(rec)
         lat.append(time.time() - qs)
         if (i + 1) % 50 == 0:
-            print(f"  squad {i + 1}/{len(questions)} "
+            print(f"  squad[{mode}] {i + 1}/{len(questions)} "
                   f"({time.time() - t0:.0f}s)", flush=True)
 
-    print(f"\n=== SQuAD 1.1 (dev subset) — end-to-end, judge-free ===")
+    print(f"\n=== SQuAD 1.1 (dev subset) — end-to-end, judge-free [{mode}] ===")
     print(f"questions={len(questions)}  embed={embed}")
     print(f"EM     {sum(ems) / len(ems):.3f}")
     print(f"F1     {sum(f1s) / len(f1s):.3f}")
     print(f"R@10   {sum(recs) / len(recs):.3f}")
     print(f"latency {sum(lat) / len(lat):.2f}s/query")
+    if mode == "loop" and stop_reasons:
+        from collections import Counter
+        print("stop reasons:", dict(Counter(stop_reasons)))
+        print(f"avg loops {sum(loop_counts) / len(loop_counts):.2f} "
+              f"| avg verifier calls "
+              f"{sum(verifiers) / len(verifiers):.2f}")
     return {"em": sum(ems) / len(ems), "f1": sum(f1s) / len(f1s),
             "recall10": sum(recs) / len(recs), "n": len(questions)}
 
@@ -396,12 +452,13 @@ def run_squad(max_q: int | None = None, embed: str = "local",
 def run_crag(max_q: int | None = None, embed: str = "local",
              force_reindex: bool = False, use_judge: bool = False,
              model: str = MODEL, judge_model: str | None = None,
-             max_tokens: int = 512):
+             max_tokens: int = 512, mode: str = "standard"):
     from rag_kit import RAGSystem, LLMConfig
     from rag_kit._search import search as search_chunks
     import numpy as np
     from rag_kit._vector_index import pack_id
 
+    _ensure_env_key()
     questions = fetch_crag(max_q)
     db = CACHE / "crag_bench.db"
     if db.exists():
@@ -442,22 +499,27 @@ def run_crag(max_q: int | None = None, embed: str = "local",
         vi.save(ns)
         q = item["question"]
         qs = time.time()
-        rows = search_chunks(rag._storage, query=q, namespace=ns, top_k=10,
-                             vector_index=rag._vector_index)
-        seen, chunks = set(), []
-        for r in rows:
-            key = (r.get("file_id"), r.get("chunk_index", 0))
-            if key in seen:
-                continue
-            seen.add(key)
-            t = r.get("text") or ""
-            if not t:
-                c = rag._storage.get_chunk(r["file_id"], r.get("chunk_index", 0))
-                t = c["text"] if c else ""
-            if t:
-                chunks.append(t)
+        if mode == "loop":
+            pred, collected, lm = answer_reader_loop(
+                rag, llm_cfg, q, ns, max_loops=3, mode="concise")
+            chunks = [c["text"] for c in collected]
+        else:
+            rows = search_chunks(rag._storage, query=q, namespace=ns, top_k=10,
+                                 vector_index=rag._vector_index)
+            seen, chunks = set(), []
+            for r in rows:
+                key = (r.get("file_id"), r.get("chunk_index", 0))
+                if key in seen:
+                    continue
+                seen.add(key)
+                t = r.get("text") or ""
+                if not t:
+                    c = rag._storage.get_chunk(r["file_id"], r.get("chunk_index", 0))
+                    t = c["text"] if c else ""
+                if t:
+                    chunks.append(t)
+            pred = answer_reader(rag, llm_cfg, q, ns, mode="concise")
         retr_hits.append(gold_in_texts(chunks, item["answers"]))
-        pred = answer_reader(rag, llm_cfg, q, ns, mode="concise")
         if not item["answers"]:
             continue
         ex = em_score(pred, item["answers"])
@@ -478,7 +540,7 @@ def run_crag(max_q: int | None = None, embed: str = "local",
             print(f"  crag {i + 1}/{len(questions)} "
                   f"({time.time() - t0:.0f}s)", flush=True)
 
-    print(f"\n=== CRAG Task 1&2 (dev subset) — end-to-end, judge-free ===")
+    print(f"\n=== CRAG Task 1&2 (dev subset) — end-to-end, judge-free [{mode}] ===")
     print(f"questions={len(questions)}  embed={embed}")
     if answerable:
         print(f"answerable (gold in the 5 pages)  {sum(answerable) / len(answerable):.3f}")
@@ -519,9 +581,40 @@ if __name__ == "__main__":
                     help="judge model (default: same as --model)")
     ap.add_argument("--max-tokens", type=int, default=512,
                     help="output cap (raise for thinking models)")
+    ap.add_argument("--mode", choices=["standard", "loop", "both"],
+                    default="standard",
+                    help="retrieval strategy: single-shot (standard), "
+                         "iterative verifier loop (loop), or both on the "
+                         "same subset for a head-to-head")
     args = ap.parse_args()
     if args.dataset == "squad":
-        run_squad(args.max_q, args.embed, args.force_reindex)
+        if args.mode == "both":
+            r1 = run_squad(args.max_q, args.embed, args.force_reindex,
+                           mode="standard")
+            r2 = run_squad(args.max_q, args.embed, args.force_reindex,
+                           mode="loop")
+            print("\n=== SQuAD head-to-head ===")
+            print(f"  standard: EM {r1['em']:.3f}  F1 {r1['f1']:.3f}  "
+                  f"R@10 {r1['recall10']:.3f}  (n={r1['n']})")
+            print(f"  loop:     EM {r2['em']:.3f}  F1 {r2['f1']:.3f}  "
+                  f"R@10 {r2['recall10']:.3f}  (n={r2['n']})")
+        else:
+            run_squad(args.max_q, args.embed, args.force_reindex,
+                      mode=args.mode)
     else:
-        run_crag(args.max_q, args.embed, args.force_reindex, args.judge,
-                 args.model, args.judge_model, args.max_tokens)
+        if args.mode == "both":
+            r1 = run_crag(args.max_q, args.embed, args.force_reindex,
+                          args.judge, args.model, args.judge_model,
+                          args.max_tokens, mode="standard")
+            r2 = run_crag(args.max_q, args.embed, args.force_reindex,
+                          args.judge, args.model, args.judge_model,
+                          args.max_tokens, mode="loop")
+            print("\n=== CRAG head-to-head ===")
+            print(f"  standard: exact {r1['exact']:.3f}  F1 {r1['f1']:.3f}  "
+                  f"contains {r1['contains']:.3f}  retr-hit {r1['retrieval_hit']:.3f}")
+            print(f"  loop:     exact {r2['exact']:.3f}  F1 {r2['f1']:.3f}  "
+                  f"contains {r2['contains']:.3f}  retr-hit {r2['retrieval_hit']:.3f}")
+        else:
+            run_crag(args.max_q, args.embed, args.force_reindex,
+                     args.judge, args.model, args.judge_model,
+                     args.max_tokens, mode=args.mode)

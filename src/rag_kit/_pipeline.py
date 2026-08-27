@@ -686,6 +686,155 @@ class Pipeline:
 
     # ── Loop-Enabled Search Pipeline ─────────────────────────────────
 
+    def retrieve_loop(
+        self, question: str,
+        file_id: int | None = None, namespace: str | None = None,
+        max_loops: int = 4, verifier_model: str | None = None,
+        top_k: int = 8,
+    ) -> tuple[list[dict], dict]:
+        """Iterative retrieval loop (Self-RAG style) — retrieval only.
+
+        Round 0: search the original question (hybrid, file- or
+        namespace-scoped). Loop: show collected excerpts to a CHEAP
+        verifier model → JSON {sufficient, next_terms}; if not
+        sufficient, search its suggested terms and merge new chunks
+        (dedup by file_id+chunk_index). Stop: sufficient, max_loops
+        reached, a round added no new chunks, or no fresh terms.
+
+        Bound:   max_loops is hard-capped at MAX_LOOPS_CAP (10).
+        Returns: (collected_chunks, metrics). Each collected chunk dict
+        carries file_id, chunk_index, text, score, source.
+
+        This is the retrieval half of query_loop, extracted so callers
+        (benchmarks, cross-file mode) can drive the loop and consume the
+        collected evidence themselves.
+        """
+        import time as _time
+        _t_start = _time.monotonic()
+        max_loops = min(max_loops, MAX_LOOPS_CAP)
+
+        tried_terms: set[str] = set()
+        seen: set[tuple[int, int]] = set()
+        collected: list[dict] = []
+
+        def _run_search(term: str) -> int:
+            """Search one term, merge new chunks into collected. Returns
+            the number of NEW chunks added (0 = no new evidence)."""
+            nonlocal tried_terms
+            key = term.lower().strip()
+            if key in tried_terms:
+                return 0
+            tried_terms.add(key)
+            results = search_chunks(
+                self._storage, query=term, file_id=file_id,
+                namespace=namespace, top_k=top_k,
+                threshold=self._search_threshold,
+                vector_index=self._vector_index,
+            )
+            added = 0
+            for r in results:
+                fid = r.get("file_id", file_id or 0)
+                ci = r.get("chunk_index", r.get("index", 0))
+                if (fid, ci) in seen:
+                    continue
+                seen.add((fid, ci))
+                chunk = self._storage.get_chunk(fid, ci)
+                if not chunk:
+                    continue
+                collected.append({
+                    "file_id": fid,
+                    "chunk_index": ci,
+                    "text": chunk["text"],
+                    "score": r.get("score", 0.0),
+                    "source": r.get("source", ""),
+                })
+                added += 1
+            return added
+
+        initial_added = _run_search(question)
+
+        stop_reason = "empty_initial"
+        loops = 0
+        verifier_calls = 0
+
+        def _verify(current_chunks: list[dict]) -> dict:
+            """Ask the cheap verifier whether the collected evidence is
+            enough. Returns {sufficient, next_terms} (best-effort)."""
+            nonlocal verifier_calls
+            verifier_calls += 1
+            # Keep the verifier prompt cheap: last ~12 chunks, trimmed
+            excerpts = []
+            for c in current_chunks[-12:]:
+                text = c["text"]
+                if len(text) > 900:
+                    text = text[:900] + "…"
+                excerpts.append(f"[chunk {c['chunk_index']}] {text}")
+            prompt = (
+                "You are verifying whether a set of document excerpts is "
+                "sufficient to answer a question.\n\n"
+                f"Question: {question}\n\n"
+                "Excerpts so far:\n"
+                + ("\n\n".join(excerpts) if excerpts else "(none)")
+                + "\n\n"
+                "Can the question be answered from these excerpts alone? "
+                "Mark sufficient=true if the excerpts contain enough detail "
+                "to answer confidently — names, values, and key specifics "
+                "present. Mark sufficient=false ONLY if important specifics "
+                "are clearly missing. When false, suggest up to 3 search "
+                "terms that would find the missing detail (synonyms, "
+                "identifiers, specific terms).\n\n"
+                "Output ONLY valid JSON:\n"
+                '{"sufficient": true|false, "next_terms": ["term1", "term2"]}\n'
+                "If sufficient, next_terms must be an empty array."
+            )
+            try:
+                return json_completion(
+                    [{"role": "user", "content": prompt}],
+                    model=verifier_model,
+                )
+            except Exception:
+                return {"sufficient": True, "next_terms": []}
+
+        verdict = _verify(collected)
+
+        if initial_added == 0:
+            stop_reason = "no_initial_results"
+        elif verdict.get("sufficient"):
+            stop_reason = "verified_sufficient"
+        else:
+            for _loop in range(max_loops):
+                loops += 1
+                next_terms = [
+                    str(t).strip() for t in verdict.get("next_terms", [])
+                    if str(t).strip().lower() not in tried_terms
+                ][:3]
+                if not next_terms:
+                    stop_reason = "no_next_terms"
+                    break
+                round_added = 0
+                for term in next_terms:
+                    round_added += _run_search(term)
+                if round_added == 0:
+                    stop_reason = "no_new_chunks"
+                    break
+                verdict = _verify(collected)
+                if verdict.get("sufficient"):
+                    stop_reason = "verified_sufficient"
+                    break
+            else:
+                stop_reason = "max_loops"
+
+        metrics = {
+            "method": "loop",
+            "stop_reason": stop_reason,
+            "loops": loops,
+            "verifier_calls": verifier_calls,
+            "terms_tried": len(tried_terms),
+            "chunks_found": len(collected),
+            "retrieval_latency": round(_time.monotonic() - _t_start, 2),
+        }
+        return collected, metrics
+
     def query_loop(
         self, file_id: int, question: str,
         llm_config: LLMConfig | None = None,
@@ -733,127 +882,18 @@ class Pipeline:
         import time as _time
         _t_start = _time.monotonic()
 
-        # Hard cap: never loop more than MAX_LOOPS_CAP rounds, whatever
-        # the caller asked for. The cap always concludes with a final
-        # synthesis (below), so a bounded loop can't burn unbounded cost.
-        max_loops = min(max_loops, MAX_LOOPS_CAP)
-
         info = self._storage.get_file(file_id) or {}
         toc = self._storage.get_toc(file_id) or ""
         config = self._resolve_config(llm_config)
 
-        # ── Round 0: initial search with the original question ────────
-        tried_terms: set[str] = set()
-        seen: set[int] = set()          # chunk indices collected
-        collected: list[dict] = []      # chunk dicts in discovery order
-
-        def _run_search(term: str) -> int:
-            """Search one term, merge new chunks into collected. Returns
-            the number of NEW chunks added (0 = no new evidence)."""
-            nonlocal tried_terms
-            key = term.lower().strip()
-            if key in tried_terms:
-                return 0
-            tried_terms.add(key)
-            results = search_chunks(
-                self._storage, query=term, file_id=file_id,
-                top_k=top_k, threshold=self._search_threshold,
-                vector_index=self._vector_index,
-            )
-            added = 0
-            for r in results:
-                ci = r.get("chunk_index", r.get("index", 0))
-                if ci in seen:
-                    continue
-                seen.add(ci)
-                chunk = self._storage.get_chunk(file_id, ci)
-                if not chunk:
-                    continue
-                collected.append({
-                    "chunk_index": ci,
-                    "text": chunk["text"],
-                    "score": r.get("score", 0.0),
-                    "source": r.get("source", ""),
-                })
-                added += 1
-            return added
-
-        initial_added = _run_search(question)
-
-        # ── Verifier: cheap model decides sufficiency + next terms ────
-        stop_reason = "empty_initial"
-        loops = 0
-        verifier_calls = 0
-
-        def _verify(current_chunks: list[dict]) -> dict:
-            """Ask the cheap verifier whether the collected evidence is
-            enough. Returns {sufficient, next_terms} (best-effort)."""
-            nonlocal verifier_calls
-            verifier_calls += 1
-            # Keep the verifier prompt cheap: last ~12 chunks, trimmed
-            excerpts = []
-            for c in current_chunks[-12:]:
-                text = c["text"]
-                if len(text) > 900:
-                    text = text[:900] + "…"
-                excerpts.append(f"[chunk {c['chunk_index']}] {text}")
-            prompt = (
-                "You are verifying whether a set of document excerpts is "
-                "sufficient to answer a question.\n\n"
-                f"Question: {question}\n\n"
-                "Excerpts so far:\n"
-                + ("\n\n".join(excerpts) if excerpts else "(none)")
-                + "\n\n"
-                "Can the question be answered from these excerpts alone? "
-                "Mark sufficient=true if the excerpts contain enough detail "
-                "to answer confidently — names, values, and key specifics "
-                "present. Mark sufficient=false ONLY if important specifics "
-                "are clearly missing. When false, suggest up to 3 search "
-                "terms that would find the missing detail (synonyms, "
-                "identifiers, specific terms).\n\n"
-                "Output ONLY valid JSON:\n"
-                '{"sufficient": true|false, "next_terms": ["term1", "term2"]}\n'
-                "If sufficient, next_terms must be an empty array."
-            )
-            try:
-                return json_completion(
-                    [{"role": "user", "content": prompt}],
-                    model=verifier_model,
-                )
-            except Exception:
-                return {"sufficient": True, "next_terms": []}
-
-        verdict = _verify(collected)
-
-        # ── Loop: search suggested terms until sufficient/stopped ─────
-        if initial_added == 0:
-            stop_reason = "no_initial_results"
-        elif verdict.get("sufficient"):
-            stop_reason = "verified_sufficient"
-        else:
-            for _loop in range(max_loops):
-                loops += 1
-                next_terms = [
-                    str(t).strip() for t in verdict.get("next_terms", [])
-                    if str(t).strip().lower() not in tried_terms
-                ][:3]
-                if not next_terms:
-                    stop_reason = "no_next_terms"
-                    break
-                round_added = 0
-                for term in next_terms:
-                    round_added += _run_search(term)
-                if round_added == 0:
-                    stop_reason = "no_new_chunks"
-                    break
-                verdict = _verify(collected)
-                if verdict.get("sufficient"):
-                    stop_reason = "verified_sufficient"
-                    break
-            else:
-                stop_reason = "max_loops"
-
-        _loop_latency = _time.monotonic() - _t_start
+        # Retrieval loop (hard-capped at MAX_LOOPS_CAP inside)
+        collected, loop_metrics = self.retrieve_loop(
+            question, file_id=file_id, max_loops=max_loops,
+            verifier_model=verifier_model, top_k=top_k,
+        )
+        stop_reason = loop_metrics["stop_reason"]
+        loops = loop_metrics["loops"]
+        verifier_calls = loop_metrics["verifier_calls"]
 
         # ── No evidence at all → abstain ──────────────────────────────
         if not collected:
@@ -865,7 +905,7 @@ class Pipeline:
                     "loops": loops,
                     "verifier_calls": verifier_calls,
                     "chunks_found": 0,
-                    "total_latency": round(_loop_latency, 2),
+                    "total_latency": round(_time.monotonic() - _t_start, 2),
                     "found_content": False,
                 },
             )
@@ -910,7 +950,7 @@ class Pipeline:
         citations = []
         for c in collected:
             citations.append({
-                "file_id": file_id,
+                "file_id": c.get("file_id", file_id),
                 "namespace": info.get("namespace", "default"),
                 "chunk_index": c["chunk_index"],
                 "score": c.get("score", 0.0),
@@ -922,7 +962,7 @@ class Pipeline:
             "stop_reason": stop_reason,
             "loops": loops,
             "verifier_calls": verifier_calls,
-            "terms_tried": len(tried_terms),
+            "terms_tried": loop_metrics["terms_tried"],
             "chunks_found": len(collected),
             "synthesizer_model": config.model,
             "synthesizer_latency": round(_synth_latency, 2),
