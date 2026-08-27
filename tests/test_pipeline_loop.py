@@ -165,3 +165,71 @@ def test_loop_dedupes_repeated_terms(monkeypatch):
     # Round 1 searches "same term" once; it adds no new chunks → stop.
     assert metrics["stop_reason"] == "no_new_chunks"
     assert searched.count("same term") == 1
+
+
+def test_loop_hard_cap_clamps_at_10(monkeypatch):
+    p = _make_pipeline()
+
+    # Verifier never satisfied; each round suggests a fresh term and the
+    # search returns a NEW chunk — the only thing stopping the loop must
+    # be the hard cap. Caller asks for 100 loops; must clamp to 10.
+    # Chunk indices stay < 30 (fake storage size); reranker stubbed to
+    # identity so the test stays fast and hermetic.
+    seq = iter(range(0, 30))
+    call_n = {"n": 0}
+
+    def fake_search(storage=None, query=None, **kw):
+        return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5",
+                 "text": "new content"}]
+
+    def fake_json(messages, model=None):
+        call_n["n"] += 1
+        return {"sufficient": False, "next_terms": [f"term {call_n['n']}"]}
+
+    def fake_chat(messages, config=None, timeout=120):
+        return "Final answer after the cap."
+
+    def fake_rerank(question, chunks, top_k=None):
+        return chunks
+
+    monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
+    monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
+    monkeypatch.setattr(pipeline_mod, "chat_completion", fake_chat)
+    monkeypatch.setattr(pipeline_mod, "semantic_rerank", fake_rerank)
+
+    answer, citations, metrics = p.query_loop(1, "q", max_loops=100)
+
+    assert metrics["stop_reason"] == "max_loops"
+    assert metrics["loops"] == 10          # clamped, not 100
+    assert metrics["chunks_found"] == 11   # initial + 1 per loop
+    assert metrics["verifier_calls"] == 11  # initial + one per loop
+    assert answer == "Final answer after the cap."  # concludes, not abandons
+    assert len(citations) == 11
+
+
+def test_loop_cap_boundary_at_10_respects_lower_value(monkeypatch):
+    p = _make_pipeline()
+
+    # A caller-provided max_loops BELOW the cap must be respected as-is.
+    seq = iter(range(0, 20))
+    call_n = {"n": 0}
+
+    def fake_search(storage=None, query=None, **kw):
+        return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5",
+                 "text": "new content"}]
+
+    def fake_json(messages, model=None):
+        call_n["n"] += 1
+        return {"sufficient": False, "next_terms": [f"term {call_n['n']}"]}
+
+    def fake_rerank(question, chunks, top_k=None):
+        return chunks
+
+    monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
+    monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
+    monkeypatch.setattr(pipeline_mod, "semantic_rerank", fake_rerank)
+
+    _, _, metrics = p.query_loop(1, "q", max_loops=3)
+
+    assert metrics["loops"] == 3
+    assert metrics["stop_reason"] == "max_loops"

@@ -22,6 +22,11 @@ from rag_kit._trimming import trim_chunks
 
 CONTEXT_EXPANSION_WINDOW = 1  # ±1 chunk around matched hits
 
+# Hard ceiling for loop-enabled search. Regardless of what the caller
+# passes as max_loops, the loop never exceeds this many rounds — after
+# the cap it always concludes with a final synthesis (never abandons).
+MAX_LOOPS_CAP = 10
+
 
 def _build_synthesis_prompt(info: dict, toc: str, chunks_text: list[str], question: str, terse: bool = False) -> list[str]:
     """Build the synthesis prompt for the standard query pipeline.
@@ -702,6 +707,12 @@ class Pipeline:
         Final:   rerank collected chunks (if >3), synthesise with the
                  strong model (reasoning high).
 
+        Bound:   max_loops is hard-capped at MAX_LOOPS_CAP (10) — the
+                 loop never runs more than 10 rounds regardless of the
+                 argument, and it ALWAYS concludes with a final
+                 synthesis once the cap is hit (never abandons the
+                 question without an answer).
+
         Costs: verifier is the router model (cheap json_object call) per
         loop; synthesis is one strong-model call. Typically 2-4 LLM calls
         total vs agentic's planner + N tool-turns + synthesis.
@@ -721,6 +732,11 @@ class Pipeline:
         """
         import time as _time
         _t_start = _time.monotonic()
+
+        # Hard cap: never loop more than MAX_LOOPS_CAP rounds, whatever
+        # the caller asked for. The cap always concludes with a final
+        # synthesis (below), so a bounded loop can't burn unbounded cost.
+        max_loops = min(max_loops, MAX_LOOPS_CAP)
 
         info = self._storage.get_file(file_id) or {}
         toc = self._storage.get_toc(file_id) or ""

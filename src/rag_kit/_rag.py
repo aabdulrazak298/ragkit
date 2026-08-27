@@ -618,7 +618,9 @@ class RAGSystem:
             file_id: ID of the loaded file.
             question: Question to ask.
             llm_config: Optional per-query LLM config override (synthesis).
-            max_loops: Max retrieval rounds after the initial search.
+            max_loops: Max retrieval rounds after the initial search
+                (default 4; hard-capped at 10 — the loop always concludes
+                with a final answer once the cap is reached).
             verifier_model: Model id for the sufficiency verifier
                 (defaults to the router model).
 
