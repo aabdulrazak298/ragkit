@@ -230,6 +230,36 @@ paraphrase-heavy corpora just don't trigger it. For accuracy-first
 deployments the cost is worth it; for latency-sensitive serving, standard
 is the default. Per-query results: `benchmark/results/e2e_loop_{squad,crag}.json`.
 
+### Multi-hop: HotpotQA (the loop's home turf)
+
+**HotpotQA dev, distractor setting** (first 100 questions; each has 10
+context paragraphs, exactly 2 are gold supporting facts; questions are
+multi-hop — bridge + comparison):
+
+| Metric | Standard | Loop |
+|---|---|---|
+| both-gold@10 (multi-hop retrieval) | 0.950 | **0.990** |
+| one-gold@10 | 1.000 | 1.000 |
+| EM | 0.570 | **0.580** |
+| F1 | 0.690 | **0.709** |
+| Latency | 0.63 s/query | 1.67 s/query |
+
+**This is the cleanest demonstration of the loop's value.** Single-shot
+finds ONE gold paragraph on every question (one-gold@10 = 1.000) but
+misses the SECOND on 5/100 (both-gold@10 = 0.950). The loop's verifier
+flags insufficiency and re-searches with the bridge entity discovered in
+paragraph 1 — recovering the second hop on **4 of the 5 misses**
+(Q16 'America East Conference', Q18 'Richard Nixon', Q74 'Bill Clinton',
+Q96 'Viglen'). Those are named entities the QUESTION does not contain, so
+no single-shot query can find them; only iterative retrieval can. The
+remaining miss (Q47) is the verifier's known failure mode (false
+"sufficient"). EM +1.0pp, F1 +1.9pp, both-gold +4.0pp at 2.6× latency.
+
+Reproduce: `cd benchmark && .venv/bin/python run_rag_e2e.py --dataset
+hotpot --max-q 100 --mode both` (downloads
+`hotpot_dev_distractor_v1.json` ~46MB first run; RAGLAB mirror).
+Results: `benchmark/results/e2e_loop_hotpot.json`.
+
 ### Self-learning TOC: chunk-derived entries (deterministic vs AI headings)
 
 The TOC learns from every chunk a search PROCESSES — even failed searches

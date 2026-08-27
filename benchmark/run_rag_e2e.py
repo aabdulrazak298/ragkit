@@ -151,6 +151,41 @@ def fetch_crag(max_q: int | None = None) -> list[dict]:
     return picked
 
 
+def fetch_hotpot(max_q: int | None = None) -> list[dict]:
+    """Load the HotpotQA dev set (distractor setting).
+
+    Each question carries 10 context paragraphs, exactly 2 of which are
+    gold (supporting_facts). Multi-hop: bridge questions need BOTH gold
+    paragraphs to answer. Returns [{"question", "answer",
+    "supporting_titles": [str], "paragraphs": [{title, text}]}].
+    """
+    src = CACHE / "hotpot_dev_v1.json"
+    if not src.exists():
+        print("HotpotQA data not downloaded — fetch hotpot_dev_distractor_"
+              "v1.json (46MB) into benchmark/.beir_cache/hotpot_dev_v1.json",
+              flush=True)
+        return []
+    data = json.loads(src.read_text())
+    picked = []
+    for item in data:
+        titles = [sf[0] for sf in item.get("supporting_facts", [])]
+        paras = []
+        for title, sentences in item.get("context", []):
+            paras.append({"title": title, "text": " ".join(sentences)})
+        picked.append({
+            "question": item.get("question", ""),
+            "answer": item.get("answer", ""),
+            "supporting_titles": titles,
+            "paragraphs": paras,
+        })
+        if max_q and len(picked) >= max_q:
+            break
+    print(f"hotpot: loaded {len(picked)} questions (distractor setting, "
+          f"10 paras each, {len(picked[0]['supporting_titles']) if picked else 0}"
+          f" gold)", flush=True)
+    return picked
+
+
 # ── Scoring (judge-free, standard) ──────────────────────────────────────
 
 _ARTICLES = re.compile(r"\b(a|an|the)\b", re.I)
@@ -583,9 +618,117 @@ def run_crag(max_q: int | None = None, embed: str = "local",
             "n": len(questions)}
 
 
+def _title_of(chunk_text: str) -> str:
+    """Best-effort: first line of a HotpotQA paragraph chunk is its title."""
+    return chunk_text.split("\n", 1)[0].strip() if chunk_text else ""
+
+
+def run_hotpot(max_q: int | None = None, embed: str = "local",
+               force_reindex: bool = False, mode: str = "standard",
+               model: str = MODEL, max_tokens: int = 512,
+               verifier_gate: int | None = None):
+    """HotpotQA dev (distractor setting) — multi-hop end-to-end.
+
+    Each question has 10 context paragraphs, exactly 2 are gold
+    (supporting_facts). Multi-hop means the reader must combine BOTH
+    gold paragraphs. Metrics:
+      both_gold@10: 1 if BOTH supporting paragraphs are in the retrieved
+        top-10 (the multi-hop retrieval test — single-shot often finds
+        one hop; the loop's re-search should recover the second)
+      em / f1: standard answer scoring against the gold answer
+    """
+    from rag_kit import RAGSystem, LLMConfig
+    from rag_kit._search import search as search_chunks
+    import numpy as np
+    from rag_kit._vector_index import pack_id
+
+    _ensure_env_key()
+    questions = fetch_hotpot(max_q)
+    db = CACHE / "hotpot_bench.db"
+    if db.exists():
+        db.unlink()
+    reasoning = None if model.startswith("deepseek") else False
+    reader_key = None if model.startswith("deepseek") else _api_key()
+    llm_cfg = LLMConfig(model=model, temperature=TEMP, api_key=reader_key,
+                        max_tokens=max_tokens, reasoning=reasoning)
+    rag = RAGSystem(db_path=str(db), llm_config=llm_cfg, max_files=0,
+                    embed_backend=embed, use_cache=False)
+
+    exacts, f1s, both_gold, one_gold, lat = [], [], [], [], []
+    t0 = time.time()
+    for i, item in enumerate(questions):
+        ns = f"hotpot_{i}"
+        st, vi = rag._storage, rag._vector_index
+        gold_titles = set(item["supporting_titles"])
+        # Each paragraph = one file = one chunk; text prefixed with title
+        # so retrieval can match on the title itself.
+        fid_to_title = {}
+        for j, para in enumerate(item["paragraphs"]):
+            text = f"{para['title']}\n{para['text']}"
+            fid = st.create_file(
+                url=None, file_path=None, filename=f"p{j}.txt",
+                chunk_size=100000, overlap=0, total_chunks=1,
+                chunks=[{"text": text, "keywords": "", "keywords_list": [],
+                         "preview": para["title"], "offset": 0}],
+                namespace=ns, source_type="text",
+                content_hash=f"hp-{i}-{j}",
+            )
+            fid_to_title[fid] = para["title"]
+            vecs = vi.embed([text])
+            vi._index.add_with_ids(
+                vecs, np.array([pack_id(fid, 0)], dtype=np.uint64))
+        vi.save(ns)
+        q = item["question"]
+        qs = time.time()
+        if mode == "loop":
+            pred, collected, lm = answer_reader_loop(
+                rag, llm_cfg, q, ns, max_loops=3, mode="concise",
+                verifier_gate=verifier_gate)
+            chunks = [c["text"] for c in collected]
+        else:
+            rows = search_chunks(rag._storage, query=q, namespace=ns,
+                                 top_k=10, vector_index=rag._vector_index)
+            seen, chunks = set(), []
+            for r in rows:
+                key = (r.get("file_id"), r.get("chunk_index", 0))
+                if key in seen:
+                    continue
+                seen.add(key)
+                t = r.get("text") or ""
+                if not t:
+                    c = rag._storage.get_chunk(
+                        r["file_id"], r.get("chunk_index", 0))
+                    t = c["text"] if c else ""
+                if t:
+                    chunks.append(t)
+            pred = answer_reader(rag, llm_cfg, q, ns, mode="concise")
+        found_titles = {_title_of(c) for c in chunks}
+        both_gold.append(1 if gold_titles.issubset(found_titles) else 0)
+        one_gold.append(1 if gold_titles & found_titles else 0)
+        exacts.append(em_score(pred, [item["answer"]]))
+        f1s.append(f1_score(pred, [item["answer"]]))
+        lat.append(time.time() - qs)
+        if (i + 1) % 25 == 0:
+            print(f"  hotpot {i + 1}/{len(questions)} "
+                  f"({time.time() - t0:.0f}s)", flush=True)
+
+    print(f"\n=== HotpotQA dev (distractor) — end-to-end, judge-free "
+          f"[{mode}] ===")
+    print(f"questions={len(questions)}  embed={embed}")
+    print(f"both-gold@10 (multi-hop retrieval) {sum(both_gold) / len(both_gold):.3f}")
+    print(f"one-gold@10  {sum(one_gold) / len(one_gold):.3f}")
+    print(f"EM     {sum(exacts) / len(exacts):.3f}")
+    print(f"F1     {sum(f1s) / len(f1s):.3f}")
+    print(f"latency {sum(lat) / len(lat):.2f}s/query")
+    return {"em": sum(exacts) / len(exacts), "f1": sum(f1s) / len(f1s),
+            "both_gold10": sum(both_gold) / len(both_gold),
+            "one_gold10": sum(one_gold) / len(one_gold),
+            "n": len(questions)}
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset", choices=["squad", "crag"], required=True)
+    ap.add_argument("--dataset", choices=["squad", "crag", "hotpot"], required=True)
     ap.add_argument("--max-q", type=int, default=None)
     ap.add_argument("--embed", choices=["local", "api"], default="local")
     ap.add_argument("--force-reindex", action="store_true")
@@ -623,6 +766,25 @@ if __name__ == "__main__":
         else:
             run_squad(args.max_q, args.embed, args.force_reindex,
                       mode=args.mode, verifier_gate=args.verifier_gate)
+    elif args.dataset == "hotpot":
+        if args.mode == "both":
+            r1 = run_hotpot(args.max_q, args.embed, args.force_reindex,
+                            mode="standard", model=args.model,
+                            max_tokens=args.max_tokens)
+            r2 = run_hotpot(args.max_q, args.embed, args.force_reindex,
+                            mode="loop", model=args.model,
+                            max_tokens=args.max_tokens,
+                            verifier_gate=args.verifier_gate)
+            print("\n=== HotpotQA head-to-head ===")
+            print(f"  standard: EM {r1['em']:.3f}  F1 {r1['f1']:.3f}  "
+                  f"both-gold@10 {r1['both_gold10']:.3f}  (n={r1['n']})")
+            print(f"  loop:     EM {r2['em']:.3f}  F1 {r2['f1']:.3f}  "
+                  f"both-gold@10 {r2['both_gold10']:.3f}  (n={r2['n']})")
+        else:
+            run_hotpot(args.max_q, args.embed, args.force_reindex,
+                       mode=args.mode, model=args.model,
+                       max_tokens=args.max_tokens,
+                       verifier_gate=args.verifier_gate)
     else:
         if args.mode == "both":
             r1 = run_crag(args.max_q, args.embed, args.force_reindex,

@@ -103,6 +103,7 @@ prompt).
 |---|---|---|---|
 | SQuAD-200 · EM / F1 | 0.885 / 0.906 | 0.875 / 0.906 | **0.900 / 0.924** |
 | CRAG-100 · F1 / contains | 0.165 / 0.240 | **0.169 / 0.260** | **0.169 / 0.260** |
+| HotpotQA-100 · EM / F1 / both-gold@10 | 0.570 / 0.690 / 0.950 | **0.580 / 0.709 / 0.990** | — |
 
 The loop re-searches when a cheap router-model verifier deems the context
 insufficient (129/200 SQuAD questions converge on round 0; 8 genuinely
