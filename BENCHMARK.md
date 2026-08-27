@@ -205,23 +205,30 @@ The verifier prompt was also slimmed to best-scored 6 chunks × 500 chars
 
 **CRAG Task 1&2 (first 100 dev questions, concise-fact reader):**
 
-| Metric | Standard | Loop |
-|---|---|---|
-| exact | 0.160 | 0.160 |
-| F1 | 0.165 | **0.169** |
-| contains | 0.240 | **0.260** |
-| retrieval hit | 0.120 | **0.130** |
-| Latency | 2.21 s/query | 5.84 s/query |
+| Metric | Standard | Loop | Loop + gate |
+|---|---|---|---|
+| exact | 0.160 | 0.160 | 0.160 |
+| F1 | 0.165 | **0.169** | **0.169** |
+| contains | 0.240 | **0.260** | **0.260** |
+| retrieval hit | 0.120 | **0.130** | **0.130** |
+| Latency | 2.21 s/query | 5.84 s/query | 5.92 s/query |
 
 CRAG is a hard case for any retriever: gold answers are paraphrases and the
 literal gold string appears in only 11% of the 5-page sets, so retrieval has
 little headroom. The loop still lifted retrieval hit 0.120→0.130 and contains
-0.240→0.260 — at 2.6× latency.
+0.240→0.260 — at 2.6× latency. The verifier gate has **no effect on CRAG**
+(identical numbers): CRAG gold is paraphrase, so the top-1 chunk rarely
+shares ≥5 content tokens with the question and the gate almost never fires.
+The gate's value is corpus-dependent — factoid corpora whose questions reuse
+answer vocabulary (SQuAD-style) get the ~25% skip; paraphrase-heavy corpora
+pay the same as ungated. It never regresses accuracy (conservative by design).
 
-**Verdict:** loop mode buys +1pp EM / +1.7pp F1 on SQuAD and a real (if
-small) lift on CRAG, at 2.2–2.6× latency. For accuracy-first deployments the
-cost is worth it; for latency-sensitive serving, standard is the default.
-Per-query results: `benchmark/results/e2e_loop_{squad,crag}.json`.
+**Verdict:** loop mode buys +1.5pp EM / +1.8pp F1 on SQuAD (gated: 0.900 /
+0.924) and a real (if small) lift on CRAG, at ~2.1× latency. The verifier
+gate cuts loop latency -12% on factoid corpora and never hurts accuracy;
+paraphrase-heavy corpora just don't trigger it. For accuracy-first
+deployments the cost is worth it; for latency-sensitive serving, standard
+is the default. Per-query results: `benchmark/results/e2e_loop_{squad,crag}.json`.
 
 ### Embedding-fairness note (important)
 
