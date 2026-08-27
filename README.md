@@ -92,6 +92,18 @@ retrieval-strategy comparison on the same subset:
 `--mode both` (single-shot vs iterative-verifier loop, same reader
 prompt).
 
+**Standard vs loop (iterative verifier), same reader both sides:**
+
+| Dataset (subset) | Standard | Loop | Loop latency |
+|---|---|---|---|
+| SQuAD-200 · EM / F1 | 0.865 / 0.889 | **0.875 / 0.906** | 1.71s (2.2×) |
+| CRAG-100 · F1 / contains | 0.165 / 0.240 | **0.169 / 0.260** | 5.84s (2.6×) |
+
+The loop re-searches when a cheap router-model verifier deems the context
+insufficient (184/200 SQuAD questions converged on round 0; the 15 hard
+ones gained +1.5pp R@10). Accuracy-first deployments pay the latency;
+latency-sensitive serving stays on standard.
+
 ## Installation
 
 ```bash

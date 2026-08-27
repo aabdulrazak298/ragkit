@@ -172,6 +172,47 @@ Reproduce: `cd benchmark && .venv/bin/python run_rag_e2e.py --dataset squad
 --max-q 300 && .venv/bin/python run_rag_e2e.py --dataset crag --max-q 200
 --judge` (downloads SQuAD ~35MB, CRAG ~740MB first run; index is reused).
 
+### Retrieval-strategy head-to-head: standard vs loop (iterative verifier)
+
+Same reader prompt on both sides (`--mode both`), so the delta is **purely
+retrieval**: the loop mode re-searches when a cheap router-model verifier
+judges the current context insufficient (up to 10 rounds, stops early on
+`verified_sufficient`). Same corpus, same questions, same subset, same LLM.
+
+**SQuAD 1.1 (first 200 dev questions, extractive reader, qwen3.5-flash):**
+
+| Metric | Standard | Loop |
+|---|---|---|
+| EM | 0.865 | **0.875** |
+| F1 | 0.889 | **0.906** |
+| Recall@10 | 0.935 | **0.950** |
+| Latency | 0.77 s/query | 1.71 s/query |
+
+Loop stop reasons: **184/200 `verified_sufficient`** (converged on round 0 —
+avg 1.26 verifier calls/query), 15 `max_loops` (genuinely hard — the
+follow-up searches added gold contexts, which is exactly why R@10 rose +1.5pp),
+1 `no_new_chunks`.
+
+**CRAG Task 1&2 (first 100 dev questions, concise-fact reader):**
+
+| Metric | Standard | Loop |
+|---|---|---|
+| exact | 0.160 | 0.160 |
+| F1 | 0.165 | **0.169** |
+| contains | 0.240 | **0.260** |
+| retrieval hit | 0.120 | **0.130** |
+| Latency | 2.21 s/query | 5.84 s/query |
+
+CRAG is a hard case for any retriever: gold answers are paraphrases and the
+literal gold string appears in only 11% of the 5-page sets, so retrieval has
+little headroom. The loop still lifted retrieval hit 0.120→0.130 and contains
+0.240→0.260 — at 2.6× latency.
+
+**Verdict:** loop mode buys +1pp EM / +1.7pp F1 on SQuAD and a real (if
+small) lift on CRAG, at 2.2–2.6× latency. For accuracy-first deployments the
+cost is worth it; for latency-sensitive serving, standard is the default.
+Per-query results: `benchmark/results/e2e_loop_{squad,crag}.json`.
+
 ### Embedding-fairness note (important)
 
 An earlier version of this benchmark ran rag-kit with **OpenRouter
