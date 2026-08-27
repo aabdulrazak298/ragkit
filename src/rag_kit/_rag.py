@@ -598,6 +598,43 @@ class RAGSystem:
         )
         return QueryResult(answer=answer, citations=citations, metrics=metrics)
 
+    def query_loop(
+        self,
+        file_id: int,
+        question: str,
+        llm_config: LLMConfig | None = None,
+        max_loops: int = 4,
+        verifier_model: str | None = None,
+    ) -> QueryResult:
+        """Iterative retrieval loop with a cheap sufficiency verifier.
+
+        Deterministic Self-RAG-style loop: search the original question,
+        ask a cheap verifier whether the collected excerpts are enough to
+        answer, and if not search the terms it suggests — repeat until
+        sufficient, max_loops, or no new evidence. Cheaper and more
+        predictable than query_agentic (no planner, no tool-calling).
+
+        Args:
+            file_id: ID of the loaded file.
+            question: Question to ask.
+            llm_config: Optional per-query LLM config override (synthesis).
+            max_loops: Max retrieval rounds after the initial search.
+            verifier_model: Model id for the sufficiency verifier
+                (defaults to the router model).
+
+        Returns:
+            QueryResult with .answer, .citations and .metrics (stop_reason,
+            loops, verifier_calls, chunks_found).
+        """
+        answer, citations, metrics = self._pipeline.query_loop(
+            file_id=file_id,
+            question=question,
+            llm_config=llm_config,
+            max_loops=max_loops,
+            verifier_model=verifier_model,
+        )
+        return QueryResult(answer=answer, citations=citations, metrics=metrics)
+
     # ── Search ────────────────────────────────────────────────────────
 
     def search(

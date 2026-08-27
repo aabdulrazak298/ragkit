@@ -29,8 +29,10 @@ print(result.answer)
   ODT, RTF, URLs, plain text
 - **Hybrid retrieval** — FTS5 BM25 + rapidfuzz fuzzy + local vector search
   (turbovec, 4-bit quantized) + FlashRank cross-encoder semantic reranking
-- **Three query pipelines** — standard, agentic (planner→executor→synthesizer),
-  TOC-first (maps questions to document sections)
+- **Four query pipelines** — standard (single-shot), loop (iterative
+  retrieval with a cheap sufficiency verifier), agentic
+  (planner→executor→synthesizer), TOC-first (maps questions to document
+  sections)
 - **Deterministic and cheap** — retrieval is local; LLM only synthesizes the answer
 - **SQLite-only storage** — FTS5 indexes, blake3 dedup, namespaces, LRU eviction
 - **Built-in metrics** — QueryMetrics tracks latency, turns, dedups, escalations

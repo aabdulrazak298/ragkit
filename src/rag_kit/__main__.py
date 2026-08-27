@@ -38,6 +38,10 @@ def main():
     q_p.add_argument("question")
     q_p.add_argument("file_id", type=int, nargs="?", help="File ID (omit for cross-file)")
     q_p.add_argument("--namespace", "-n", help="Namespace (for cross-file query)")
+    q_p.add_argument("--loop", action="store_true",
+                     help="Loop-enabled search (iterative retrieval with verifier)")
+    q_p.add_argument("--max-loops", type=int, default=4,
+                     help="Max retrieval rounds for --loop (default 4)")
 
     # search
     s_p = sub.add_parser("search", help="Keyword search")
@@ -81,18 +85,28 @@ def main():
         print(f"Loaded — file_id: {fid} (namespace: {args.namespace})")
 
     elif args.command == "query":
-        if args.file_id:
+        if args.loop and not args.file_id:
+            print("query --loop requires a file_id (loop mode is file-scoped).")
+            sys.exit(2)
+        if args.loop:
+            result = rag.query_loop(
+                args.file_id, args.question, max_loops=args.max_loops)
+        elif args.file_id:
             result = rag.query(args.file_id, args.question)
         elif args.namespace:
             result = rag.query(args.question, namespace=args.namespace)
         else:
             result = rag.query(args.question)
         print(result.answer)
+        if result.metrics:
+            print("\n--- Metrics ---")
+            for k, v in result.metrics.items():
+                print(f"  {k}: {v}")
         if result.citations:
             print("\n--- Citations ---")
             for c in result.citations:
                 print(f"  File #{c['file_id']}, chunk {c['chunk_index']} "
-                      f"(score: {c['score']:.2f})")
+                      f"(score: {c.get('score', 0):.2f})")
 
     elif args.command == "search":
         kwargs = {"query": args.query}
