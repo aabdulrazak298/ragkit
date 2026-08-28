@@ -1,0 +1,38 @@
+name: Publish to PyPI
+
+# Trigger: push a tag matching v* (e.g. v0.1.0).
+# Uses Trusted Publishing (OIDC) — no stored API token.
+# One-time setup: in PyPI project settings → Publishing → Add trusted
+# publisher: owner = aabdulrazak298, repository = ragkit,
+# workflow name = publish.yml, environment = pypi (or leave blank).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  id-token: write
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel + sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
