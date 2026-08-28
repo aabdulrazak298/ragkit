@@ -725,8 +725,10 @@ class RAGApp:
 # Gradio 6: pass to launch(css=...) — Blocks() no longer accepts it.
 CHAT_CSS = """
 .gradio-container {
-    height: 100vh;          /* never let the page scroll — chat owns scrolling */
-    overflow: hidden;
+    height: 100vh;          /* app fills the viewport */
+    overflow: auto;         /* OTHER tabs scroll here (Settings is long);
+                               the chat tab fits exactly, so it still shows
+                               only the chatbot's own scrollbar */
 }
 .gradio-container footer {
     display: none;          /* drop Gradio's "Show API" footer noise */
