@@ -285,7 +285,16 @@ class RAGSystem:
                 from pypdf import PdfReader
             except ImportError:
                 raise ImportError("Install rag-kit[pdf] for PDF support")
-            reader = PdfReader(path)
+            try:
+                reader = PdfReader(path)
+            except Exception as e:
+                if "cryptography" in str(e) or "AES" in str(e) or "RC4" in str(e):
+                    raise ImportError(
+                        "This PDF is encrypted (common for datasheets/vendor docs). "
+                        'Install PDF decryption support: pip install "rag-kit[pdf]" '
+                        "(adds cryptography)."
+                    ) from e
+                raise
             text = "\n".join(page.extract_text() for page in reader.pages)
             source_type = "pdf"
 
