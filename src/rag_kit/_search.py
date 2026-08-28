@@ -138,8 +138,11 @@ def _search_hybrid(
     if file_id is not None:
         info = storage.get_file(file_id) or {}
         n = int(info.get("total_chunks") or 0)
-        if n > 0:
-            allowlist = [pack_id(file_id, i) for i in range(n)]
+        if n == 0:
+            # Stale/missing file id — searching the full index would leak
+            # other documents' chunks into a file-scoped answer. Abstain.
+            return []
+        allowlist = [pack_id(file_id, i) for i in range(n)]
     vec_results = vector_index.search(query, k=top_k * 2, allowlist_ids=allowlist)
 
     # Attach chunk text and preview for vector results

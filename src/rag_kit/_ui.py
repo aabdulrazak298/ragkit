@@ -159,8 +159,13 @@ class RAGApp:
                 )
             elif mode == "toc":
                 if not (file_id and file_id.strip().isdigit()):
-                    return "TOC-first mode needs a file selected.", ""
-                result = self.rag.query(int(file_id), question, toc_first=True, llm_config=cfg)
+                    # The UI labels the file picker "optional"; TOC-first
+                    # needs a file, so fall back to cross-file standard.
+                    result = self.rag.query(question, llm_config=cfg)
+                else:
+                    result = self.rag.query(
+                        int(file_id), question, toc_first=True, llm_config=cfg
+                    )
             elif file_id and file_id.strip().isdigit():
                 result = self.rag.query(int(file_id), question, llm_config=cfg)
             elif namespace:
@@ -315,9 +320,9 @@ def build_app(app: RAGApp | None = None) -> Any:
                     )
                     mode_rd = gr.Radio(
                         ["standard", "toc", "loop"],
-                        value="standard",
+                        value="toc",
                         label="Mode",
-                        info="standard: single retrieval · toc: TOC-first navigation · loop: iterative verification",
+                        info="toc: TOC-first navigation (default) · standard: single retrieval · loop: iterative verification",
                     )
                 chatbot = gr.Chatbot(label="rag-kit", height=480)
                 with gr.Row():
