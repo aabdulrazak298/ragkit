@@ -13,10 +13,17 @@ from __future__ import annotations
 from typing import Any
 
 from rag_kit import LLMConfig, RAGSystem
+from rag_kit._llm import chat_completion
 
 # Defaults mirrored from _llm.py (kept here so the UI can show them).
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
+# FlaskChat-style memory: once a chat passes this many user turns, the older
+# turns collapse into a single visible Memory message (the last KEEP_TURNS
+# stay verbatim).
+SUMMARY_TURNS = 7
+KEEP_TURNS = 4
 
 # Common OpenAI-compatible providers — selecting one fills the base URL for
 # the user, so they only ever pick a provider and paste a key.
@@ -180,22 +187,74 @@ class RAGApp:
         question: str,
         file_id: str | None = None,
         mode: str = "standard",
+        files: list[str] | None = None,
     ) -> list:
         """ChatGPT-style turn: append the user and assistant messages.
 
         history is a list of message dicts ({'role': ..., 'content': ...},
-        the Gradio 6 Chatbot format). Returns the new history (input
-        untouched for blank questions).
+        the Gradio 6 Chatbot format). Optional `files` (paths) are loaded
+        into the RAG store and attached to the user bubble. Returns the new
+        history (input untouched for blank questions). Answers are plain —
+        no chunk/citation references.
         """
         history = [dict(m) for m in (history or [])]
         if not question or not question.strip():
             return history
-        answer, citations = self.ask(question, file_id=file_id, mode=mode)
-        if citations:
-            answer = f"{answer}\n\n---\n📎 {citations}"
-        history.append({"role": "user", "content": question})
+        history = self._maybe_summarize(history)
+        user_msg: dict = {"role": "user", "content": question}
+        if files:
+            for f in files:
+                self.load_file(f)
+            user_msg["files"] = list(files)
+        history.append(user_msg)
+        answer, _citations = self.ask(question, file_id=file_id, mode=mode)
         history.append({"role": "assistant", "content": answer})
         return history
+
+    # ── Conversation memory (FlaskChat-style summarization) ────────────
+
+    def _maybe_summarize(self, history: list) -> list:
+        """Once the thread passes SUMMARY_TURNS user turns, collapse
+        everything older than the last KEEP_TURNS turns into one visible
+        Memory message. Returns history unchanged if below threshold or the
+        summarizer fails."""
+        user_idx = [i for i, m in enumerate(history) if m.get("role") == "user"]
+        if len(user_idx) < SUMMARY_TURNS:
+            return history
+        cutoff = user_idx[-KEEP_TURNS]
+        old, recent = history[:cutoff], history[cutoff:]
+        summary = self._summarize_messages(old)
+        if not summary:
+            return history
+        return [{"role": "assistant", "content": f"📝 Memory: {summary}"}] + recent
+
+    def _summarize_messages(self, messages: list) -> str:
+        """Summarize a conversation slice via the configured LLM. Returns ''
+        (no summarization) when no API key is configured or the call fails."""
+        cfg = self._llm_config()
+        if not cfg.api_key:
+            return ""
+        text = "\n".join(
+            f"{m.get('role')}: {m.get('content', '')}" for m in messages if m.get("content")
+        )
+        try:
+            return chat_completion(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Summarize the conversation below concisely in 2-3 sentences. "
+                            "Keep key facts, numbers, decisions, and any open questions. "
+                            "Output only the summary."
+                        ),
+                    },
+                    {"role": "user", "content": text[-12000:]},
+                ],
+                cfg,
+                timeout=60,
+            ).strip()
+        except Exception:
+            return ""
 
 
 def build_app(app: RAGApp | None = None) -> Any:
@@ -232,29 +291,49 @@ def build_app(app: RAGApp | None = None) -> Any:
                 )
             chatbot = gr.Chatbot(label="rag-kit", height=480)
             with gr.Row():
-                question_tb = gr.Textbox(
-                    label="",
-                    placeholder="Ask about your documents…",
+                chat_input = gr.MultimodalTextbox(
+                    file_types=[
+                        ".txt",
+                        ".md",
+                        ".pdf",
+                        ".docx",
+                        ".pptx",
+                        ".epub",
+                        ".odt",
+                        ".rtf",
+                        ".csv",
+                    ],
+                    placeholder="Ask about your documents, or attach a file…",
                     scale=6,
                     container=False,
                 )
                 send_btn = gr.Button("Send", variant="primary", scale=1)
             new_btn = gr.Button("New chat")
 
-            def _chat(chat_value, question, file_choice, mode):
+            def _chat(chat_value, multimodal_input, file_choice, mode):
+                question = ""
+                files: list[str] = []
+                if isinstance(multimodal_input, dict):
+                    question = (multimodal_input.get("text") or "").strip()
+                    raw_files = multimodal_input.get("files") or []
+                    files = [f.name if hasattr(f, "name") else str(f) for f in raw_files]
+                elif multimodal_input:
+                    question = str(multimodal_input).strip()
                 file_id = _extract_id(file_choice)
-                new_history = app.chat_turn(chat_value, question, file_id=file_id, mode=mode)
-                return new_history, ""
+                new_history = app.chat_turn(
+                    chat_value, question, file_id=file_id, mode=mode, files=files or None
+                )
+                return new_history, {"text": "", "files": []}
 
             send_btn.click(
                 _chat,
-                inputs=[chatbot, question_tb, file_dd, mode_rd],
-                outputs=[chatbot, question_tb],
+                inputs=[chatbot, chat_input, file_dd, mode_rd],
+                outputs=[chatbot, chat_input],
             )
-            question_tb.submit(
+            chat_input.submit(
                 _chat,
-                inputs=[chatbot, question_tb, file_dd, mode_rd],
-                outputs=[chatbot, question_tb],
+                inputs=[chatbot, chat_input, file_dd, mode_rd],
+                outputs=[chatbot, chat_input],
             )
             new_btn.click(lambda: [], outputs=[chatbot])
 

@@ -123,13 +123,96 @@ class TestChatTurn:
         history = app.chat_turn([], "   ", file_id=None)
         assert history == []
 
-    def test_citations_attached_to_answer(self, app, monkeypatch):
+    def test_citations_not_attached_to_answer(self, app, monkeypatch):
+        # ChatGPT-style: answers are plain — no chunk/citation references
         app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
             "The answer",
             "File #1 chunk 0 (score: 1.00)",
         )
         history = app.chat_turn([], "q", file_id="1")
-        assert "File #1 chunk 0" in history[1]["content"]
+        assert history[1]["content"] == "The answer"
+
+    def test_upload_in_chat_loads_file(self, app, doc):
+        history = app.chat_turn([], "summarize this", files=[doc])
+        # file attached to the user bubble
+        assert history[0]["role"] == "user"
+        assert history[0]["files"] == [doc]
+        # and actually loaded into the RAG store
+        assert any("doc.txt" in r for r in app.list_files())
+        assert history[1]["role"] == "assistant"
+        assert history[1]["content"].strip()
+
+    def test_no_files_key_when_no_upload(self, app, doc):
+        _, fid = app.load_file(doc)
+        history = app.chat_turn([], "q", file_id=fid)
+        assert "files" not in history[0]
+
+
+class TestSummarization:
+    """FlaskChat-style memory: conversations past 7 turns get summarized."""
+
+    def _history(self, n):
+        h = []
+        for i in range(n):
+            h.append({"role": "user", "content": f"q{i}"})
+            h.append({"role": "assistant", "content": f"a{i}"})
+        return h
+
+    def test_no_summary_below_threshold(self, app, monkeypatch):
+        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
+            "ans",
+            "",
+        )
+        h = app.chat_turn(self._history(6), "q6")
+        # 6 old turns + new turn = 7, still under threshold -> no memory msg
+        assert not any("Memory" in m.get("content", "") for m in h)
+        assert len(h) == 14
+
+    def test_summary_after_threshold(self, app, monkeypatch):
+        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
+            "ans",
+            "",
+        )
+        app._summarize_messages = lambda msgs: "TEST SUMMARY"
+        h = app.chat_turn(self._history(8), "q8")
+        # old turns collapsed into one memory message; last 4 turns + new turn kept
+        assert h[0]["content"] == "📝 Memory: TEST SUMMARY"
+        assert len(h) == 1 + 8 + 2
+        # recent turns preserved verbatim
+        assert any(m["content"] == "q7" for m in h)
+
+    def test_summary_persists_across_followups(self, app, monkeypatch):
+        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
+            "ans",
+            "",
+        )
+        app._summarize_messages = lambda msgs: "TEST SUMMARY"
+        h = app.chat_turn(self._history(8), "q8")
+        h2 = app.chat_turn(h, "q9")
+        # memory message still at front
+        assert h2[0]["content"] == "📝 Memory: TEST SUMMARY"
+        assert len(h2) == 1 + 8 + 4
+
+    def test_summary_without_key_returns_empty(self, app, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        assert app._summarize_messages([{"role": "user", "content": "hi"}]) == ""
+
+    def test_summarize_calls_llm(self, app, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_KEY", "sk-test")
+        calls = {}
+
+        def fake_chat_completion(messages, config, timeout=120):
+            calls["messages"] = messages
+            return "CONCISE SUMMARY"
+
+        monkeypatch.setattr("rag_kit._ui.chat_completion", fake_chat_completion)
+        out = app._summarize_messages(
+            [{"role": "user", "content": "q0"}, {"role": "assistant", "content": "a0"}]
+        )
+        assert out == "CONCISE SUMMARY"
+        assert calls["messages"][0]["role"] == "system"
 
 
 class TestProviderPresets:
