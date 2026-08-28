@@ -603,8 +603,9 @@ def build_app(app: RAGApp | None = None) -> Any:
             def _refresh_providers():
                 choices = app.list_providers()
                 return (
-                    gr.update(choices=choices),
-                    gr.update(choices=["Same as answer"] + choices),
+                    gr.update(choices=choices),  # remove dropdown
+                    gr.update(choices=choices),  # answer model dropdown
+                    gr.update(choices=["Same as answer"] + choices),  # search dropdown
                     _fmt_providers(app),
                 )
 
@@ -619,13 +620,13 @@ def build_app(app: RAGApp | None = None) -> Any:
             def _add(name, model, base, key, preset):
                 resolved = resolve_provider_base(preset, base)
                 msg = app.add_provider(name, model, resolved, key)
-                r1, r2, provs = _refresh_providers()
-                return msg, r1, r2, provs
+                r1, r2, r3, provs = _refresh_providers()
+                return msg, r1, r2, r3, provs
 
             def _remove(name):
                 msg = app.remove_provider(name)
-                r1, r2, provs = _refresh_providers()
-                return msg, r1, r2, provs
+                r1, r2, r3, provs = _refresh_providers()
+                return msg, r1, r2, r3, provs
 
             def _save_roles(answer, search):
                 search = "" if search == "Same as answer" else search
@@ -635,12 +636,12 @@ def build_app(app: RAGApp | None = None) -> Any:
             add_btn.click(
                 _add,
                 inputs=[p_name, p_model, p_base, p_key, p_preset],
-                outputs=[prov_status, rem_dd, search_dd, prov_list],
+                outputs=[prov_status, rem_dd, answer_dd, search_dd, prov_list],
             )
             rem_btn.click(
                 _remove,
                 inputs=[rem_dd],
-                outputs=[prov_status, rem_dd, search_dd, prov_list],
+                outputs=[prov_status, rem_dd, answer_dd, search_dd, prov_list],
             )
             roles_btn.click(
                 _save_roles,
