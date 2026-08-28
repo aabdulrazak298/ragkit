@@ -1437,34 +1437,7 @@ class Pipeline:
         # scale before fusion, so term hits and identifier matches are
         # never diluted by semantic scores. Hedges wrong-section
         # navigation AND rare-term/identifier queries.
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=min(16, 1 + 2 * len(terms))) as ex:
-            futures = [ex.submit(self._targeted_search, file_id, question, selected, mappings)]
-            for t in terms:
-                futures.append(
-                    ex.submit(
-                        search_chunks,
-                        self._storage,
-                        query=t,
-                        file_id=file_id,
-                        top_k=8,
-                        vector_index=self._vector_index,
-                    )
-                )
-                futures.append(
-                    ex.submit(
-                        search_chunks,
-                        self._storage,
-                        query=t,
-                        file_id=file_id,
-                        top_k=8,
-                        vector_index=self._vector_index,
-                        mode="lexical",
-                    )
-                )
-            results = [f.result() for f in futures]
-        matched_chunks = self._merge_search_lists(*results)
+        matched_chunks = self._parallel_search(file_id, question, selected, mappings, terms)
 
         if not matched_chunks:
             # Nothing at all — fall back
@@ -1488,6 +1461,118 @@ class Pipeline:
         )
 
         return answer, citations
+
+    def _parallel_search(
+        self,
+        file_id: int,
+        question: str,
+        selected: list[dict],
+        mappings: list[dict],
+        terms: list[str],
+    ) -> list[dict]:
+        """PARALLEL multi-leg search + min-max fusion. Targeted
+        section-scoped (original question) when headings were selected,
+        plus per-term full hybrid AND per-term full lexical (FTS5+fuzzy)
+        legs — every leg normalized on its own scale so term hits and
+        identifier matches are never diluted by semantic scores."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(16, 1 + 2 * len(terms))) as ex:
+            futures = []
+            if selected:
+                futures.append(
+                    ex.submit(self._targeted_search, file_id, question, selected, mappings)
+                )
+            for t in terms:
+                futures.append(
+                    ex.submit(
+                        search_chunks,
+                        self._storage,
+                        query=t,
+                        file_id=file_id,
+                        top_k=8,
+                        vector_index=self._vector_index,
+                    )
+                )
+                futures.append(
+                    ex.submit(
+                        search_chunks,
+                        self._storage,
+                        query=t,
+                        file_id=file_id,
+                        top_k=8,
+                        vector_index=self._vector_index,
+                        mode="lexical",
+                    )
+                )
+            results = [f.result() for f in futures]
+        return self._merge_search_lists(*results)
+
+    def _algorithmic_retrieve(
+        self, file_id: int, question: str, expand_terms: bool = True
+    ) -> list[dict]:
+        """Algorithmic retrieval WITHOUT synthesis — the backend for the
+        chat's search_documents tool.
+
+        Runs the TOC-first search algorithm: TOC heading selection →
+        BRIGHT-style term expansion → parallel section-scoped + hybrid +
+        lexical search → fusion → cross-encoder rerank. Falls back to
+        plain hybrid search when there are no mappings, no headings match,
+        or retrieval comes up empty. The chat model writes the answer, so
+        this returns chunks (with sections) instead of text.
+        """
+        mappings = self._storage.get_section_mappings(file_id) or []
+        toc = self._storage.get_toc(file_id) or ""
+        if mappings and not toc:
+            from rag_kit._processor import format_toc
+
+            toc = format_toc(mappings)
+            self._storage.set_toc(file_id, toc)
+
+        learned = self._learned_menu_entries(file_id, mappings) if mappings else []
+        menu = mappings + learned
+        toc_view = self._render_self_updating_toc(mappings, learned) if learned else toc
+
+        selected: list[dict] = []
+        if mappings:
+            try:
+                selected = self._select_headings(question, toc_view, menu)
+            except Exception:
+                selected = []
+
+        terms = [question]
+        if selected:
+            try:
+                terms = self._expand_terms(question, toc_view, menu) if expand_terms else [question]
+            except Exception:
+                terms = [question]
+            terms = [question] + [t for t in terms if t and t != question]
+            terms = terms[:8]
+
+        matched = self._parallel_search(file_id, question, selected, mappings, terms)
+        if not matched:
+            # Plain hybrid fallback (no mappings / no headings / empty).
+            matched = search_chunks(
+                self._storage,
+                query=question,
+                file_id=file_id,
+                top_k=8,
+                vector_index=self._vector_index,
+            )
+        if len(matched) > 3:
+            reranked = semantic_rerank(question, matched, top_k=len(matched))
+            if reranked:
+                matched = reranked
+        if mappings:
+            try:
+                matched = self._expand_context(matched, mappings, file_id)
+            except Exception:
+                pass
+        try:
+            self._record_chunk_learnings(file_id, matched)
+        except Exception:
+            pass  # learning is best-effort
+        return matched
 
     def _record_chunk_learnings(self, file_id: int, chunks: list[dict]) -> int:
         """Teach the TOC from chunks the AI actually PROCESSED.

@@ -435,11 +435,12 @@ class RAGApp:
         history.append({"role": "user", "content": question})
         try:
             # Tool-calling chat: FULL history as messages, retrieval via
-            # the search_documents tool (the model knows the document is
-            # attached from the system prompt). No query rewriting — the
-            # model resolves follow-up pronouns itself when it writes the
-            # tool query.
-            answer = self._tool_chat(history, file_id=file_id)
+            # the search_documents tool — which runs the ragkit retrieval
+            # algorithm the user picked (mode: standard/toc/loop). The
+            # model knows the document is attached from the system prompt.
+            # No query rewriting — the model resolves follow-up pronouns
+            # itself when it writes the tool query.
+            answer = self._tool_chat(history, file_id=file_id, algo=mode)
         except Exception:
             # Fallback: classic pipeline (no tool support / no key). The
             # prior thread still goes in as text context.
@@ -456,10 +457,14 @@ class RAGApp:
 
     # ── Conversation memory (FlaskChat-style summarization) ────────────
 
-    def _tool_chat(self, history: list, file_id: str | None = None) -> str:
+    def _tool_chat(
+        self, history: list, file_id: str | None = None, algo: str = "toc"
+    ) -> str:
         """Tool-calling chat turn: FULL history as messages, retrieval via
         the search_documents tool. The system prompt announces the attached
-        document so the model knows it can retrieve from it."""
+        document so the model knows it can retrieve from it. algo selects
+        which ragkit retrieval algorithm the tool runs: standard (raw
+        hybrid), toc (TOC-first engine), loop (verifier-driven)."""
         cfg = self._llm_config()
         if not cfg.api_key:
             raise RuntimeError("No API key configured")
@@ -484,10 +489,14 @@ class RAGApp:
             )
             + "Use the search_documents tool to retrieve relevant content before "
             "answering questions about the document — do not answer from general "
-            "knowledge when the document likely covers it. You may call get_toc "
-            "to see the document structure. Answer from the retrieved content; "
-            "reference section names naturally. Never mention chunk numbers or "
-            "internal metadata."
+            "knowledge when the document likely covers it. search_documents runs a "
+            "comprehensive retrieval (TOC-guided, term-expanded, parallel search, "
+            "reranked) and returns the best excerpts in one call — PREFER ONE "
+            "THOROUGH SEARCH over many narrow ones, and re-search only if the "
+            "results clearly lack a needed detail. You may call get_toc to see "
+            "the document structure. Answer from the retrieved content; reference "
+            "section names naturally. Never mention chunk numbers or internal "
+            "metadata."
         )
         messages = [{"role": "system", "content": system}] + [
             {"role": m.get("role"), "content": m.get("content", "")}
@@ -498,21 +507,47 @@ class RAGApp:
             messages,
             cfg,
             _CHAT_TOOLS,
-            self._tool_executor(fid),
+            self._tool_executor(fid, algo),
             timeout=120,
+            max_rounds=8,
+            max_tool_calls=4,
         )
         return answer
 
-    def _tool_executor(self, file_id: int | None):
+    def _tool_executor(self, file_id: int | None, algo: str = "toc"):
         """Build the tool executor bound to the attached file (None =
-        cross-file search)."""
+        cross-file search). Repeated queries are answered with a pointer
+        to the earlier results instead of re-searching. algo picks the
+        ragkit retrieval algorithm behind search_documents: standard =
+        raw hybrid, toc = TOC-first engine (default), loop = verifier
+        loop."""
+        seen: set[str] = set()
 
         def execute(name: str, args: dict) -> str:
             if name == "search_documents":
                 q = str(args.get("query", "")).strip()
                 if not q:
                     return "Please provide a search query."
-                results = self.rag.search(query=q, file_id=file_id)
+                if q.lower() in seen:
+                    return (
+                        "You already searched for this — the results are in the "
+                        "conversation above. Re-read them or search a different "
+                        "angle."
+                    )
+                seen.add(q.lower())
+                # ragkit's own retrieval algorithms; raw hybrid is the
+                # fallback when the algorithm can't run.
+                try:
+                    if file_id is None:
+                        results = self.rag.search(query=q, file_id=None)
+                    elif algo == "standard":
+                        results = self.rag.search(query=q, file_id=file_id)
+                    elif algo == "loop":
+                        results = self.rag.loop_retrieve(file_id, q, max_loops=2, top_k=6)
+                    else:  # toc
+                        results = self.rag.algorithmic_search(file_id, q, top_k=6)
+                except Exception:
+                    results = self.rag.search(query=q, file_id=file_id)
                 parts = []
                 for r in results[:6]:
                     secs = r.get("sections") or []

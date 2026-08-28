@@ -474,12 +474,15 @@ def chat_completion_tools(
     tool_executor,
     timeout: int = 120,
     max_rounds: int = 6,
+    max_tool_calls: int = 8,
 ) -> tuple[str, list[dict]]:
     """Tool-calling chat loop: the model may call tools (retrieval, TOC),
     results are fed back as tool messages, until it produces a final
     answer. Returns (answer, tool_log) where tool_log = [{"name", "args",
     "result"}, ...]. Falls back to a plain completion if the provider
-    rejects tool calls (no tool support)."""
+    rejects tool calls (no tool support). Once the TOTAL tool-call budget
+    (max_tool_calls) is spent, the model is forced to answer without
+    tools — over-eager search loops cannot burn the whole context."""
     if not config.api_key:
         return _mock_answer(messages), []
 
@@ -494,6 +497,7 @@ def chat_completion_tools(
 
     msgs = list(messages)
     log: list[dict] = []
+    used_calls = 0
     for _round in range(max_rounds):
         payload = {
             "model": config.model,
@@ -513,6 +517,7 @@ def chat_completion_tools(
         tool_calls = msg.get("tool_calls") or []
         if not tool_calls:
             return msg.get("content") or "", log
+        used_calls += len(tool_calls)
         msgs.append(
             {
                 "role": "assistant",
@@ -536,6 +541,45 @@ def chat_completion_tools(
                 {"role": "tool", "tool_call_id": tc.get("id", ""), "content": result}
             )
             log.append({"name": name, "args": args, "result": result})
+        if used_calls >= max_tool_calls:
+            # Budget spent — force the final answer without tools.
+            msgs.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "STOP searching. Tools are now disabled. Answer the "
+                        "user's question directly using the retrieved content. "
+                        "Start with the answer itself — no tool calls, no meta "
+                        "commentary."
+                    ),
+                }
+            )
+            plain = {k: v for k, v in payload.items() if k not in ("tools", "tool_choice")}
+            content = _post_chat(config, plain, timeout)
+            # Some models still emit a tool-call block when forced — cut
+            # the leak and retry once with an even firmer instruction.
+            if "<tool_calls" in content.lower() or "tool_calls:" in content.lower():
+                msgs.append(
+                    {
+                        "role": "assistant",
+                        "content": content,
+                    }
+                )
+                msgs.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous response contained a tool call, but "
+                            "tools are disabled. Answer with the final answer "
+                            "text only."
+                        ),
+                    }
+                )
+                content = _post_chat(config, plain, timeout)
+            cut = content.lower().find("<tool_calls")
+            if cut != -1:
+                content = content[:cut]
+            return content, log
     return "I could not finish the answer after several retrieval steps.", log
 
 

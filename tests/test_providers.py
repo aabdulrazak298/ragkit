@@ -474,3 +474,31 @@ class TestToolChat:
         assert answer == "recovered"
         assert "Tool error" in log[0]["result"]
         assert fake.calls[1]["messages"][-1]["content"] == "Tool error: index missing"
+
+    def test_tool_budget_forces_final_answer(self, monkeypatch):
+        """Over-eager search loops are cut off: after the total tool-call
+        budget, the model is FORCED to answer without tools."""
+        tool_msg = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c",
+                    "type": "function",
+                    "function": {"name": "search_documents", "arguments": '{"query":"x"}'},
+                }
+            ],
+        }
+        final_msg = {"role": "assistant", "content": "final answer"}
+        fake = _FakeMsgClient([tool_msg, final_msg])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        answer, log = chat_completion_tools(
+            [{"role": "user", "content": "q"}], _tool_cfg(), [], lambda name, args: "r",
+            max_tool_calls=1,
+        )
+        assert answer == "final answer"
+        assert len(log) == 1
+        # forced round: no tools, firm nudge message present
+        forced = fake.calls[1]
+        assert "tools" not in forced and "tool_choice" not in forced
+        assert "STOP searching" in forced["messages"][-1]["content"]

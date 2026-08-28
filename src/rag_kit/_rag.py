@@ -772,6 +772,41 @@ class RAGSystem:
             vector_index=self._vector_index,
         )
 
+    def algorithmic_search(
+        self, file_id: int, question: str, top_k: int = 8
+    ) -> list[dict[str, Any]]:
+        """Algorithmic retrieval WITHOUT synthesis — the backend for the
+        chat's search_documents tool.
+
+        Runs the TOC-first engine: TOC heading selection → term expansion
+        → parallel section-scoped + hybrid + lexical search → fusion →
+        cross-encoder rerank (see Pipeline._algorithmic_retrieve). The
+        chat model writes the answer; this returns the best chunks (with
+        section names) so the model never sees raw retrieval internals.
+        """
+        chunks = self._pipeline._algorithmic_retrieve(file_id, question)
+        return chunks[:top_k]
+
+    def loop_retrieve(
+        self, file_id: int, question: str, max_loops: int = 2, top_k: int = 8
+    ) -> list[dict[str, Any]]:
+        """Verifier-driven iterative retrieval WITHOUT synthesis — the
+        'loop' algorithm as a chat tool backend. Search → cheap verifier
+        asks for more terms if evidence is insufficient → repeat. Returns
+        the collected chunks (with section names)."""
+        collected, _metrics = self._pipeline.retrieve_loop(
+            question,
+            file_id=file_id,
+            max_loops=max_loops,
+        )
+        mappings = self._storage.get_section_mappings(file_id) or []
+        if mappings:
+            try:
+                collected = self._pipeline._expand_context(collected, mappings, file_id)
+            except Exception:
+                pass
+        return collected[:top_k]
+
     # ── Chunk / TOC access ────────────────────────────────────────────
 
     def get_chunk(self, file_id: int, index: int) -> dict | None:

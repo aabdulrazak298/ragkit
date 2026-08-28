@@ -435,6 +435,66 @@ def _real_pipeline_with_chunks(chunks, namespace="default"):
     return p, storage, fid
 
 
+# ── Algorithmic retrieval (chat tool backend) ──────────────────────────
+
+
+def test_algorithmic_retrieve_falls_back_to_plain_search(monkeypatch):
+    """No section mappings -> the algorithm degrades to plain hybrid
+    search (no LLM calls), still returning chunks for the tool."""
+    p, storage, fid = _real_pipeline_with_chunks(
+        ["Relief valve sizing formula: A = Q / (K * P).", "NCO uses a 24-bit accumulator."]
+    )
+    chunks = p._algorithmic_retrieve(fid, "NCO accumulator")
+    assert chunks
+    assert any("NCO" in c["text"] for c in chunks)
+
+
+def test_algorithmic_retrieve_runs_toc_algorithm(monkeypatch):
+    """With mappings: heading selection + term expansion drive the
+    parallel search; results get reranked before returning."""
+    p, storage, fid = _real_pipeline_with_chunks(
+        [
+            "The NCO module synthesizes frequencies from an input clock.",
+            "Oscillator start-up timer delays the clock until stable.",
+            "HFINTOSC stays active during sleep when NCO is enabled.",
+            "NCO output can be routed to CLC, CWG, Timer1, Timer2 or CLKR.",
+            "The NCO overflow sets the NCOxIF interrupt flag.",
+            "PWS bits select the output pulse width in PFM mode.",
+        ]
+    )
+    mapping = {
+        "title": "NCO Module",
+        "hierarchical_path": "NCO Module",
+        "level": 1,
+        "chunk_start": 0,
+        "chunk_end": 0,
+    }
+    storage.set_section_mappings(fid, [mapping])
+    storage.set_toc(fid, "NCO Module")
+    p._learned_menu_entries = lambda *a, **k: []  # no learned entries
+    p._render_self_updating_toc = lambda *a, **k: "NCO Module"
+    calls = {"select": 0, "expand": 0, "rerank": 0}
+
+    def fake_select(question, toc_view, menu):
+        calls["select"] += 1
+        return [mapping]
+
+    def fake_expand(question, toc_view, menu):
+        calls["expand"] += 1
+        return ["NCO accumulator", "oscillator"]
+
+    def fake_rerank(question, chunks, top_k=None):
+        calls["rerank"] += 1
+        return chunks
+
+    monkeypatch.setattr(p, "_select_headings", fake_select)
+    monkeypatch.setattr(p, "_expand_terms", fake_expand)
+    monkeypatch.setattr("rag_kit._pipeline.semantic_rerank", fake_rerank)
+    chunks = p._algorithmic_retrieve(fid, "What is the NCO accumulator?")
+    assert calls["select"] == 1 and calls["expand"] == 1 and calls["rerank"] == 1
+    assert chunks
+
+
 def test_standard_query_does_not_teach_toc_without_ai(monkeypatch):
     """TOC learning is AI-only: a standard query (toc_ai_headings off)
     must NOT write heuristic first-line headings into the TOC — that

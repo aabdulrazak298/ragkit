@@ -225,7 +225,7 @@ class TestRAGApp:
 
         captured = {}
 
-        def fake_tool_chat(self_, history, file_id=None):
+        def fake_tool_chat(self_, history, file_id=None, **kw):
             captured["history"] = [dict(m) for m in history]  # snapshot
             return "NCO setup answer"
 
@@ -248,7 +248,7 @@ class TestRAGApp:
 
         captured = {}
 
-        def fake_ct(messages, config, tools, executor, timeout=120):
+        def fake_ct(messages, config, tools, executor, **kw):
             captured["messages"] = messages
             captured["tools"] = tools
             return "answer", []
@@ -264,18 +264,59 @@ class TestRAGApp:
         # user message passed through
         assert captured["messages"][-1] == {"role": "user", "content": "hi"}
 
-    def test_tool_executor_search_formats_results(self, app, monkeypatch):
-        def fake_search(query, file_id=None):
+    def test_tool_executor_search_uses_algorithmic_engine(self, app, monkeypatch):
+        """search_documents must run ragkit's algorithmic retrieval (TOC
+        headings + expansion + parallel search + rerank), not raw search."""
+
+        def fake_algo(file_id, question, top_k=8):
             return [
                 {"chunk_index": 3, "sections": ["8. OSC - Oscillator Module"], "text": "NCO content here"},
             ]
 
-        monkeypatch.setattr(app.rag, "search", fake_search)
+        monkeypatch.setattr(app.rag, "algorithmic_search", fake_algo)
         exec_ = app._tool_executor(1)
         out = exec_("search_documents", {"query": "NCO"})
         assert "8. OSC" in out and "NCO content" in out
         # unknown tool
         assert "Unknown tool" in exec_("nope", {})
+
+    def test_tool_executor_falls_back_to_raw_search(self, app, monkeypatch):
+        def boom(file_id, question, top_k=8):
+            raise RuntimeError("algorithm down")
+
+        def raw(query, file_id=None):
+            return [{"chunk_index": 1, "text": "raw chunk"}]
+
+        monkeypatch.setattr(app.rag, "algorithmic_search", boom)
+        monkeypatch.setattr(app.rag, "search", raw)
+        out = app._tool_executor(1)("search_documents", {"query": "NCO"})
+        assert "raw chunk" in out
+
+    def test_tool_executor_algo_dispatch(self, app, monkeypatch):
+        """The mode radio picks the ragkit algorithm behind the tool:
+        standard = raw hybrid, toc = toc-first engine, loop = verifier
+        loop."""
+        calls = []
+
+        def raw(query, file_id=None):
+            calls.append("standard")
+            return [{"chunk_index": 1, "text": "standard chunk"}]
+
+        def algo(file_id, question, top_k=8):
+            calls.append("toc")
+            return [{"chunk_index": 2, "text": "toc chunk"}]
+
+        def loop(file_id, question, max_loops=2, top_k=8):
+            calls.append("loop")
+            return [{"chunk_index": 3, "text": "loop chunk"}]
+
+        monkeypatch.setattr(app.rag, "search", raw)
+        monkeypatch.setattr(app.rag, "algorithmic_search", algo)
+        monkeypatch.setattr(app.rag, "loop_retrieve", loop)
+        assert "standard chunk" in app._tool_executor(1, "standard")("search_documents", {"query": "q"})
+        assert "toc chunk" in app._tool_executor(1, "toc")("search_documents", {"query": "q"})
+        assert "loop chunk" in app._tool_executor(1, "loop")("search_documents", {"query": "q"})
+        assert calls == ["standard", "toc", "loop"]
 
     def test_tool_chat_failure_falls_back_to_ask(self, app, monkeypatch):
         """Tool chat unavailable (no key / provider rejects) -> classic
