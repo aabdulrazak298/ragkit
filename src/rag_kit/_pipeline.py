@@ -280,8 +280,17 @@ class Pipeline:
             vector_index=self._vector_index,
         )
 
-        # Step 1b: If nothing found, abstain — don't feed random chunks
+        # Step 1b: If nothing found, abstain — don't feed random chunks.
+        # But an overview question ("what is this document about?") is
+        # answerable from the TOC alone, and the TOC is deterministic and
+        # free — better than a dead-end abstain.
         if not results:
+            toc = self._storage.get_toc(file_id) or ""
+            if toc.strip():
+                lines = [ln.strip() for ln in toc.splitlines() if ln.strip()]
+                if len(lines) == 1:
+                    return f"The document covers: {lines[0]}", []
+                return "The document covers:\n" + "\n".join(f"- {ln}" for ln in lines), []
             return "No relevant content found in the document.", []
 
         # ── Teach the TOC from the chunks this search examined ──

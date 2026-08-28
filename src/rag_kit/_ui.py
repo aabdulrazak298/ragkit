@@ -48,7 +48,7 @@ class RAGApp:
     """UI-facing wrapper around RAGSystem. Every method returns plain values
     (strings / lists) ready for Gradio components — and for unit tests."""
 
-    def __init__(self, db_path: str | None = None, embed_backend: str = "api"):
+    def __init__(self, db_path: str | None = None, embed_backend: str = "local"):
         self.rag = RAGSystem(db_path=db_path, embed_backend=embed_backend)
         self.llm_model: str = ""
         self.llm_base_url: str = ""

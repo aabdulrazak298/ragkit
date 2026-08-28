@@ -97,7 +97,7 @@ class RAGSystem:
         search_threshold: float | None = None,
         max_files: int = 50,
         enable_vectors: bool = True,
-        embed_backend: str = "api",
+        embed_backend: str = "local",
         use_cache: bool = True,
         cache_fuzzy: float | None = 0.90,
         toc_ai_headings: bool = False,
@@ -109,7 +109,27 @@ class RAGSystem:
         self._max_files = max_files
         self._use_cache = use_cache
         self._cache_fuzzy = cache_fuzzy
-        self._vector_index = VectorIndex(embed_backend=embed_backend) if enable_vectors else None
+        # Vector index is keyed by the DATABASE (file ids are per-DB) — a
+        # global index dir would collide across databases sharing file ids.
+        index_dir = None
+        if db_path is not None:
+            index_dir = os.path.join(
+                os.path.dirname(os.path.abspath(db_path)),
+                os.path.basename(db_path) + ".vectors",
+            )
+        self._vector_index = (
+            VectorIndex(embed_backend=embed_backend, index_dir=index_dir)
+            if enable_vectors
+            else None
+        )
+        # Restore the persisted index (best-effort) so a restart keeps
+        # semantic search over previously loaded files instead of starting
+        # empty (lexical-only) until new files are loaded.
+        if self._vector_index is not None:
+            try:
+                self._vector_index.load("default")
+            except Exception:
+                pass
         self._pipeline = Pipeline(
             self._storage,
             llm_config,
@@ -500,7 +520,7 @@ class RAGSystem:
                 llm_config=llm_config,
             )
 
-        if cache_ctx is not None and answer.strip():
+        if cache_ctx is not None and answer.strip() and citations:
             self._storage.cache_put(cache_ctx[0], cache_ctx[1], cache_ctx[2], answer, citations)
         return QueryResult(answer=answer, citations=citations)
 
@@ -569,7 +589,7 @@ class RAGSystem:
                 llm_config=llm_config,
             )
 
-        if cache_ctx is not None and answer.strip():
+        if cache_ctx is not None and answer.strip() and citations:
             self._storage.cache_put(cache_ctx[0], cache_ctx[1], cache_ctx[2], answer, citations)
         return QueryResult(answer=answer, citations=citations)
 

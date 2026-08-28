@@ -13,6 +13,7 @@ from typing import Any
 from rapidfuzz import fuzz, utils
 
 from rag_kit._processor import extract_preview
+from rag_kit._vector_index import pack_id
 
 DEFAULT_THRESHOLD = 0.3
 
@@ -130,8 +131,16 @@ def _search_hybrid(
     Merges results from both sources, deduplicates by (file_id, chunk_index),
     normalises scores, and returns top_k sorted by relevance.
     """
-    # Step 1: Vector search (primary, full index — no allowlist restriction)
-    vec_results = vector_index.search(query, k=top_k * 2)
+    # Step 1: Vector search (primary). When file-scoped, restrict to that
+    # file's chunks — otherwise the query is answered from OTHER documents
+    # (a 29-chunk contract would drown a 4-chunk policy in the merge).
+    allowlist = None
+    if file_id is not None:
+        info = storage.get_file(file_id) or {}
+        n = int(info.get("total_chunks") or 0)
+        if n > 0:
+            allowlist = [pack_id(file_id, i) for i in range(n)]
+    vec_results = vector_index.search(query, k=top_k * 2, allowlist_ids=allowlist)
 
     # Attach chunk text and preview for vector results
     for r in vec_results:

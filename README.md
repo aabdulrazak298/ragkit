@@ -157,9 +157,11 @@ rag.set_llm_config(LLMConfig(
 ```
 
 An explicitly passed `base_url` is always honored — auto-detection never
-overrides it. Embeddings: OpenRouter by default, or set `RAGKIT_EMBED_URL`
-for an OpenAI-compatible embeddings endpoint (local MiniLM is the
-zero-API-cost alternative via `embed_backend="local"`).
+overrides it. Embeddings: **local MiniLM by default** (zero API cost,
+fully offline after the first ~80 MB model download). For higher-quality
+semantic search, set `RAGKIT_EMBED_URL` for an OpenAI-compatible
+embeddings endpoint (OpenRouter works out of the box with
+`OPENROUTER_KEY`, `embed_backend="api"`).
 
 ## Local Web UI
 
@@ -167,10 +169,10 @@ Run rag-kit as a local app with a browser UI (Gradio):
 
 ```bash
 pip install "rag-kit[ui]"
-rag-kit ui                 # opens http://127.0.0.1:7860
+rag-kit ui                 # opens http://127.0.0.1:7860 (local MiniLM embeddings)
 rag-kit ui --port 8080     # custom port
 rag-kit ui --share         # temporary public link (for demos)
-rag-kit ui --embed-backend local   # no-API-key semantic search (MiniLM)
+rag-kit ui --embed-backend api   # OpenRouter embeddings (needs OPENROUTER_KEY)
 ```
 
 The UI has four tabs — **Chat** (ChatGPT-style conversation in a centered

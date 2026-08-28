@@ -70,9 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
     ui_p.add_argument("--share", action="store_true", help="Create a temporary public share link")
     ui_p.add_argument(
         "--embed-backend",
-        default="api",
+        default="local",
         choices=["api", "local"],
-        help="Vector backend: api (OpenRouter embeddings) or local (MiniLM, no key)",
+        help="Vector backend: local (MiniLM, zero API cost — default) or api (OpenRouter embeddings)",
     )
 
     return parser

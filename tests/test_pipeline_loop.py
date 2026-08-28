@@ -13,7 +13,7 @@ class _FakeStorage:
     def get_file(self, file_id):
         return {"filename": "fake.txt", "namespace": "default"}
 
-    def get_toc(self, file_id):
+    def get_toc(self, file_id) -> str | None:
         return "TOC"
 
     def get_chunk(self, file_id, index):
@@ -104,6 +104,59 @@ def test_loop_abstains_on_no_results(monkeypatch):
     assert metrics["stop_reason"] == "no_initial_results"
     assert metrics["found_content"] is False
     assert citations == []
+
+
+def test_query_toc_fallback_when_retrieval_empty(monkeypatch):
+    """Overview questions ('what is this about?') with zero retrieval hits
+    are answered deterministically from the file TOC instead of dead-ending
+    with 'No relevant content'."""
+    class _TocStorage(_FakeStorage):
+        def get_toc(self, file_id) -> str:  # noqa: D102
+            return "1. Authorized users\n2. Software installation\n3. Termination"
+
+    p = _make_pipeline(_TocStorage())
+
+    def fake_search(storage=None, query=None, **kw):
+        return []  # question shares no tokens with the corpus
+
+    monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
+
+    answer, citations = p.query(1, "what is the documents all about")
+
+    assert "Authorized users" in answer
+    assert "Software installation" in answer
+    assert "No relevant content" not in answer
+    assert citations == []  # grounded in TOC, not cached as a chunk answer
+
+
+def test_query_abstains_without_toc(monkeypatch):
+    """No TOC and no retrieval hits -> the original abstain still applies."""
+    class _NoTocStorage(_FakeStorage):
+        def get_toc(self, file_id) -> str | None:
+            return None
+
+    p = _make_pipeline(_NoTocStorage())
+
+    def fake_search(storage=None, query=None, **kw):
+        return []
+
+    monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
+
+    answer, _ = p.query(1, "what is the documents all about")
+    assert answer == "No relevant content found in the document."
+
+
+def test_query_toc_single_line(monkeypatch):
+    """A one-line TOC collapses to a single sentence instead of a list."""
+    p = _make_pipeline(_FakeStorage())  # get_toc -> "TOC" (single line)
+
+    def fake_search(storage=None, query=None, **kw):
+        return []
+
+    monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
+
+    answer, _ = p.query(1, "what is the documents all about")
+    assert answer == "The document covers: TOC"
 
 
 def test_loop_stops_on_no_new_chunks(monkeypatch):

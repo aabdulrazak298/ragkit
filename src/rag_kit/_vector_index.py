@@ -68,7 +68,7 @@ class VectorIndex:
         dim: int = 4096,
         bit_width: int = DEFAULT_BIT_WIDTH,
         index_dir: str | None = None,
-        embed_backend: str = "api",
+        embed_backend: str = "local",
     ):
         self._api_key = (
             api_key or os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
@@ -84,8 +84,18 @@ class VectorIndex:
         self._index = tv.IdMapIndex(dim=self._dim, bit_width=bit_width)
         if embed_backend == "local":
             self._enabled = is_model_available()
+        elif self._api_key:
+            self._enabled = True
+        elif is_model_available():
+            # No API key — fall back to local MiniLM instead of silently
+            # disabling semantic search (lexical-only retrieval dead-ends
+            # on questions that share no tokens with the corpus).
+            self._embed_backend = "local"
+            self._dim = 384
+            self._index = tv.IdMapIndex(dim=384, bit_width=bit_width)
+            self._enabled = True
         else:
-            self._enabled = bool(self._api_key)
+            self._enabled = False
 
     # ── Embedding ──────────────────────────────────────────────────────
 

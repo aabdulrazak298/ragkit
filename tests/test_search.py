@@ -119,6 +119,40 @@ def test_search_filters_by_file(tmp_db):
     assert all(r["file_id"] == 1 for r in results)
 
 
+class _RecordingVectorIndex:
+    """Fake vector index that records the allowlist it was called with."""
+
+    enabled = True
+    size = 10
+
+    def __init__(self):
+        self.last_allowlist: list[int] | None = None
+
+    def search(self, query, k=10, allowlist_ids=None):
+        self.last_allowlist = allowlist_ids
+        return []  # no hits — lexical sources carry the test
+
+
+def test_hybrid_vector_search_is_file_scoped(tmp_db):
+    """File-scoped queries must pass an allowlist restricted to that file —
+    otherwise a big neighbour file's chunks leak into the context."""
+    storage = _make_storage(tmp_db)
+    vi = _RecordingVectorIndex()
+    search(storage, "safety procedures", file_id=1, top_k=10, vector_index=vi)
+    assert vi.last_allowlist is not None
+    from rag_kit._vector_index import pack_id, unpack_id
+
+    assert len(vi.last_allowlist) == 2  # file 1 has 2 chunks
+    for eid in vi.last_allowlist:
+        fid, _ = unpack_id(eid)
+        assert fid == 1, "allowlist must contain only the scoped file's chunks"
+    assert pack_id(1, 0) in vi.last_allowlist
+
+    # Cross-file query stays unrestricted
+    search(storage, "safety procedures", top_k=10, vector_index=vi)
+    assert vi.last_allowlist is None
+
+
 def test_fuzzy_scan_direct(tmp_db):
     storage = _make_storage(tmp_db)
     matches = _fuzzy_scan(
