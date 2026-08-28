@@ -8,7 +8,7 @@ gradio; build_app() is the only gradio touchpoint.
 import pytest
 
 from rag_kit.__main__ import build_parser
-from rag_kit._ui import RAGApp
+from rag_kit._ui import PROVIDER_PRESETS, RAGApp, resolve_provider_base
 
 
 @pytest.fixture
@@ -61,10 +61,54 @@ class TestRAGApp:
         assert cfg.base_url == "https://my.proxy/v1"
         assert cfg.api_key == "sk-test"
 
+    def test_deepseek_provider_maps_model_prefix(self, app):
+        # DeepSeek direct API wants "deepseek-v4-flash", not "deepseek/deepseek-v4-flash"
+        app.set_llm(
+            "deepseek/deepseek-v4-flash",
+            "https://api.deepseek.com/v1",
+            "sk-ds",
+            provider="DeepSeek",
+        )
+        cfg = app._llm_config()
+        assert cfg.model == "deepseek-v4-flash"
+        assert cfg.base_url == "https://api.deepseek.com/v1"
+
+    def test_openrouter_provider_keeps_model_prefix(self, app):
+        # OpenRouter uses the slashed id natively
+        app.set_llm(
+            "deepseek/deepseek-v4-flash",
+            "https://openrouter.ai/api/v1",
+            "sk-or",
+            provider="OpenRouter",
+        )
+        cfg = app._llm_config()
+        assert cfg.model == "deepseek/deepseek-v4-flash"
+        assert cfg.base_url == "https://openrouter.ai/api/v1"
+
     def test_llm_config_defaults_when_unset(self, app):
         cfg = app._llm_config()
         assert cfg.model  # resolves to library default
         assert cfg.base_url
+
+
+class TestProviderPresets:
+    def test_known_providers_fill_base_url(self):
+        assert resolve_provider_base("OpenRouter", "typed") == "https://openrouter.ai/api/v1"
+        assert resolve_provider_base("DeepSeek", "typed") == "https://api.deepseek.com/v1"
+        assert resolve_provider_base("OpenAI", "typed") == "https://api.openai.com/v1"
+
+    def test_custom_uses_typed_url(self):
+        assert resolve_provider_base("Custom", "https://my.proxy/v1") == "https://my.proxy/v1"
+
+    def test_custom_empty_falls_back(self):
+        # Custom + blank URL -> empty (RAGApp defaults to env/OpenRouter)
+        assert resolve_provider_base("Custom", "") == ""
+
+    def test_unknown_provider_uses_typed_url(self):
+        assert resolve_provider_base("SomethingElse", "https://x/v1") == "https://x/v1"
+
+    def test_presets_are_complete(self):
+        assert set(PROVIDER_PRESETS) == {"OpenRouter", "DeepSeek", "OpenAI", "Custom"}
 
 
 class TestCli:

@@ -18,6 +18,24 @@ from rag_kit import LLMConfig, RAGSystem
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
+# Common OpenAI-compatible providers — selecting one fills the base URL for
+# the user, so they only ever pick a provider and paste a key.
+PROVIDER_PRESETS: dict[str, str] = {
+    "OpenRouter": "https://openrouter.ai/api/v1",
+    "DeepSeek": "https://api.deepseek.com/v1",
+    "OpenAI": "https://api.openai.com/v1",
+    "Custom": "",
+}
+
+
+def resolve_provider_base(provider: str, typed_base: str) -> str:
+    """Base URL for a provider choice. Known providers win; Custom/unknown
+    fall back to whatever the user typed (blank = env defaults)."""
+    preset = PROVIDER_PRESETS.get(provider, "")
+    if preset:
+        return preset
+    return (typed_base or "").strip()
+
 
 class RAGApp:
     """UI-facing wrapper around RAGSystem. Every method returns plain values
@@ -28,14 +46,16 @@ class RAGApp:
         self.llm_model: str = ""
         self.llm_base_url: str = ""
         self.llm_api_key: str = ""
+        self.llm_provider: str = "Custom"
 
     # ── LLM settings ───────────────────────────────────────────────────
 
-    def set_llm(self, model: str, base_url: str, api_key: str) -> str:
+    def set_llm(self, model: str, base_url: str, api_key: str, provider: str = "Custom") -> str:
         """Store LLM settings. Blank fields fall back to env/defaults."""
         self.llm_model = (model or "").strip()
         self.llm_base_url = (base_url or "").strip()
         self.llm_api_key = (api_key or "").strip()
+        self.llm_provider = provider
         cfg = self._llm_config()
         return f"LLM set: {cfg.model} @ {cfg.base_url}"
 
@@ -45,8 +65,13 @@ class RAGApp:
         api_key = self.llm_api_key or None
         if model is None and base_url is None and api_key is None:
             return LLMConfig()  # fully env-resolved
+        model = model or DEFAULT_MODEL
+        # DeepSeek direct expects the bare id ("deepseek-v4-flash"),
+        # while OpenRouter uses the slashed id — map per provider.
+        if self.llm_provider == "DeepSeek" and model.startswith("deepseek/"):
+            model = model.split("/", 1)[-1]
         return LLMConfig(
-            model=model or DEFAULT_MODEL,
+            model=model,
             base_url=base_url or DEFAULT_BASE_URL,
             api_key=api_key,
         )
@@ -220,6 +245,13 @@ def build_app(app: RAGApp | None = None) -> Any:
             del_id = gr.Textbox(label="File id to delete")
             del_btn = gr.Button("Delete")
 
+            def _refresh_list():
+                return "\n".join(app.list_files())
+
+            def _refresh_dd():
+                choices = app.list_files()
+                return gr.update(choices=choices), gr.update(choices=choices)
+
             def _load(file, url):
                 if file is not None:
                     status, _ = app.load_file(file.name)
@@ -227,36 +259,71 @@ def build_app(app: RAGApp | None = None) -> Any:
                     status, _ = app.load_url(url.strip())
                 else:
                     status = "Pick a file or enter a URL."
-                return status, _refresh_list()
-
-            def _refresh_list():
-                return "\n".join(app.list_files())
+                dd_ask, dd_search = _refresh_dd()
+                return status, _refresh_list(), dd_ask, dd_search
 
             def _delete(fid):
-                return app.delete_file(fid), _refresh_list()
+                dd_ask, dd_search = _refresh_dd()
+                return app.delete_file(fid), _refresh_list(), dd_ask, dd_search
 
-            up_btn.click(_load, inputs=[up_file, up_url], outputs=[up_status, doc_list])
-            del_btn.click(_delete, inputs=[del_id], outputs=[up_status, doc_list])
+            up_btn.click(
+                _load,
+                inputs=[up_file, up_url],
+                outputs=[up_status, doc_list, file_dd, s_file_dd],
+            )
+            del_btn.click(
+                _delete,
+                inputs=[del_id],
+                outputs=[up_status, doc_list, file_dd, s_file_dd],
+            )
             doc_list.value = _refresh_list()
 
         # ── Settings tab ───────────────────────────────────────────────
         with gr.Tab("Settings"):
-            llm_model = gr.Textbox(label="Model", value=app.llm_model or DEFAULT_MODEL)
-            llm_base = gr.Textbox(label="Base URL", value=app.llm_base_url or DEFAULT_BASE_URL)
+            gr.Markdown(
+                "Pick your provider, paste your API key — done. "
+                "Leave the model blank for the default."
+            )
+            provider_dd = gr.Dropdown(
+                list(PROVIDER_PRESETS.keys()),
+                value="OpenRouter",
+                label="Provider",
+            )
+            llm_model = gr.Textbox(label="Model (optional)", value=app.llm_model or DEFAULT_MODEL)
+            llm_base = gr.Textbox(
+                label="Base URL (auto-filled by provider)",
+                value=app.llm_base_url or DEFAULT_BASE_URL,
+            )
             llm_key = gr.Textbox(label="API key", type="password")
             llm_btn = gr.Button("Save LLM settings")
             llm_status = gr.Markdown()
 
-            def _save(model, base, key):
-                return app.set_llm(model, base, key)
+            def _fill_base(provider):
+                preset = PROVIDER_PRESETS.get(provider, "")
+                return gr.update(value=preset) if preset else gr.update(value="")
 
-            llm_btn.click(_save, inputs=[llm_model, llm_base, llm_key], outputs=llm_status)
+            def _save(model, base, key, provider):
+                resolved = resolve_provider_base(provider, base)
+                return app.set_llm(model, resolved, key)
+
+            provider_dd.change(_fill_base, inputs=provider_dd, outputs=llm_base)
+            llm_btn.click(
+                _save,
+                inputs=[llm_model, llm_base, llm_key, provider_dd],
+                outputs=llm_status,
+            )
 
     return demo
 
 
-def _extract_id(choice: str | None) -> str | None:
-    """Pull the numeric file id out of a dropdown label like '#3  default  doc.pdf'."""
-    if not choice:
+def _extract_id(choice: str | list | None) -> str | None:
+    """Pull the numeric file id out of a dropdown label like '#3  default  doc.pdf'.
+
+    Tolerant of the shapes Gradio returns: a plain string, or a
+    [value, label] pair from the client API.
+    """
+    if isinstance(choice, (list, tuple)):
+        choice = choice[0] if choice else None
+    if not choice or not isinstance(choice, str):
         return None
     return choice.strip().split()[0].lstrip("#")

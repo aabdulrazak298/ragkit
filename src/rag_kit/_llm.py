@@ -55,7 +55,10 @@ class LLMConfig:
 
     api_key: str | None = None
     model: str = _DEFAULT_MODEL
-    base_url: str = DEFAULT_BASE_URL
+    # None = auto-detect (env override, then deepseek/ routing, then OpenRouter).
+    # ANY explicit value — even one equal to the OpenRouter default — is
+    # honored as-is and never re-routed.
+    base_url: str | None = None
     temperature: float = 0.1
     reasoning_effort: str | None = None  # "high", "max" — DeepSeek thinking effort
     thinking_enabled: bool = True  # DeepSeek: thinking mode on/off (default: on for V4)
@@ -64,19 +67,22 @@ class LLMConfig:
 
     def __post_init__(self):
         # Universal OpenAI-compatible support:
-        # 1. An explicitly passed base_url is ALWAYS honored — never stomped.
-        # 2. RAGKIT_BASE_URL / OPENAI_BASE_URL fill in when no base_url given.
-        # 3. deepseek/ auto-routing to DeepSeek direct fires ONLY on the default.
-        if self.base_url == DEFAULT_BASE_URL:
+        # base_url=None (default) means auto-detect: RAGKIT_BASE_URL /
+        # OPENAI_BASE_URL env wins, else deepseek/ models route to DeepSeek
+        # direct, else OpenRouter. ANY explicit base_url — even one equal to
+        # the OpenRouter default — is honored as-is and never re-routed.
+        if self.base_url is None:
             env_base = os.environ.get("RAGKIT_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
             if env_base:
                 self.base_url = env_base.rstrip("/")
-
-        if self.model.startswith("deepseek/") and self.base_url == DEFAULT_BASE_URL:
-            self.base_url = (
-                os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/") + "/v1"
-            )
-            self.model = self._map_deepseek_model(self.model)
+            elif self.model.startswith("deepseek/"):
+                self.base_url = (
+                    os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+                    + "/v1"
+                )
+                self.model = self._map_deepseek_model(self.model)
+            else:
+                self.base_url = DEFAULT_BASE_URL
 
         if self.api_key is None:
             if self.model.startswith("deepseek-"):

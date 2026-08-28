@@ -175,7 +175,8 @@ rag-kit ui --embed-backend local   # no-API-key semantic search (MiniLM)
 
 The UI has four tabs — **Ask** (standard / TOC-first / loop modes with
 citations), **Search** (raw chunk retrieval), **Documents** (upload files or
-URLs, list, delete), and **Settings** (LLM model, base URL, API key — blank
+URLs, list, delete), and **Settings** (pick a provider — OpenRouter / DeepSeek
+/ OpenAI / Custom — paste your API key; the base URL auto-fills, and blank
 fields fall back to your environment). The UI runs entirely on your machine;
 `--share` is the only path that creates an external link.
 

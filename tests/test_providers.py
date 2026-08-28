@@ -27,6 +27,17 @@ class TestBaseUrl:
         # Model name must be passed through unchanged for the custom proxy
         assert cfg.model == "deepseek/deepseek-v4-flash"
 
+    def test_explicit_or_url_not_rerouted_to_deepseek(self):
+        # Regression: picking OpenRouter in the UI passes the default URL
+        # explicitly — that must NOT trigger deepseek/ auto-routing.
+        cfg = LLMConfig(
+            model="deepseek/deepseek-v4-flash",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="k",
+        )
+        assert cfg.base_url == "https://openrouter.ai/api/v1"
+        assert cfg.model == "deepseek/deepseek-v4-flash"
+
     def test_default_routes_deepseek_direct(self, monkeypatch):
         monkeypatch.delenv("DEEPSEEK_BASE_URL", raising=False)
         cfg = LLMConfig(model="deepseek/deepseek-v4-flash", api_key="k")
