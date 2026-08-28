@@ -41,8 +41,8 @@ print(result.answer)
   extracted at load time
 - **PDF bookmarks become the TOC** — datasheets/manuals with an embedded
   outline (Microchip, TI...) get their real section hierarchy instead of
-  first-line noise: `PIC16F18426.pdf` → "Flexible Oscillator Structure",
-  "1. Device Overview → 1.1 New Core Features → …"
+  first-line noise: `your-datasheet.pdf` → "1. Device Overview → 1.1 New
+  Core Features → …"
 - **Deterministic and cheap** — retrieval is local; LLM only synthesizes the answer
 - **SQLite-only storage** — FTS5 indexes, blake3 dedup, namespaces, LRU eviction
 - **Built-in metrics** — QueryMetrics tracks latency, turns, dedups, escalations
