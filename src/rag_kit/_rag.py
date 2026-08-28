@@ -120,7 +120,11 @@ def _pdf_outline_headings(reader, page_texts: list[str]) -> list[dict]:
             except Exception:
                 idx = 0
             headings.append(
-                {"title": title, "level": level, "offset": page_offsets[idx] if idx < len(page_offsets) else 0}
+                {
+                    "title": title,
+                    "level": level,
+                    "offset": page_offsets[idx] if idx < len(page_offsets) else 0,
+                }
             )
 
     walk(outline)

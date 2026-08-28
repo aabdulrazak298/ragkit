@@ -276,6 +276,7 @@ def _create_engine(db_path: str):
     # defaults to foreign_keys=OFF per connection, so the declared
     # constraints silently never fire otherwise.
     if db_path.startswith("sqlite"):
+
         @event.listens_for(engine, "connect")
         def _fk_on(dbapi_conn, _record):  # noqa: ANN001
             cur = dbapi_conn.cursor()

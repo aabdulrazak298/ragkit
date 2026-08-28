@@ -175,8 +175,8 @@ def chat_completion(
             "model": config.model,
             "messages": messages,
             "temperature": config.temperature,
-            **( {"top_p": config.top_p} if config.top_p is not None else {}),
-            **( {"max_tokens": config.max_tokens} if config.max_tokens else {}),
+            **({"top_p": config.top_p} if config.top_p is not None else {}),
+            **({"max_tokens": config.max_tokens} if config.max_tokens else {}),
             **extra,
         },
         timeout=timeout,
@@ -217,8 +217,8 @@ async def achat_completion(
             "model": config.model,
             "messages": messages,
             "temperature": config.temperature,
-            **( {"top_p": config.top_p} if config.top_p is not None else {}),
-            **( {"max_tokens": config.max_tokens} if config.max_tokens else {}),
+            **({"top_p": config.top_p} if config.top_p is not None else {}),
+            **({"max_tokens": config.max_tokens} if config.max_tokens else {}),
             **extra,
         },
         timeout=timeout,
@@ -558,8 +558,8 @@ def chat_completion_tools(
             "model": config.model,
             "messages": msgs,
             "temperature": config.temperature,
-            **( {"top_p": config.top_p} if config.top_p is not None else {}),
-            **( {"max_tokens": config.max_tokens} if config.max_tokens else {}),
+            **({"top_p": config.top_p} if config.top_p is not None else {}),
+            **({"max_tokens": config.max_tokens} if config.max_tokens else {}),
             "tools": tools,
             "tool_choice": "auto",
             **extra,
@@ -615,9 +615,7 @@ def chat_completion_tools(
             except Exception as e:  # noqa: BLE001 — feed the error back
                 result = f"Tool error: {e}"
             result = str(result)
-            msgs.append(
-                {"role": "tool", "tool_call_id": tc.get("id", ""), "content": result}
-            )
+            msgs.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": result})
             log.append({"name": name, "args": args, "result": result})
         if used_calls >= max_tool_calls:
             # Budget spent — force the final answer without tools.
@@ -692,8 +690,7 @@ def _convert_messages(messages: list[dict], thought: str, kind: str) -> list[dic
         )
     else:
         instruction = (
-            "Convert the above reasoning output into your final verdict. "
-            "Output ONLY the verdict."
+            "Convert the above reasoning output into your final verdict. Output ONLY the verdict."
         )
     return [
         *messages,

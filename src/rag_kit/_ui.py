@@ -234,9 +234,7 @@ class RAGApp:
         self.answer_role = answer
         self.search_role = search if search in self.providers and search != answer else ""
         self.converter_role = (
-            converter
-            if converter in self.providers and converter != self.search_role
-            else ""
+            converter if converter in self.providers and converter != self.search_role else ""
         )
         self._save_settings()
         r = self.providers[answer]["model"]
@@ -252,9 +250,7 @@ class RAGApp:
         )
         return f"Answer: {answer} ({r}) · {s}{c}"
 
-    def set_answerer(
-        self, temperature: float, top_p: float | None, personality: str
-    ) -> str:
+    def set_answerer(self, temperature: float, top_p: float | None, personality: str) -> str:
         """Answerer controls: sampling (temperature, top_p) + persona.
         Personality is stored as prompt TEXT (see PERSONALITY_PRESETS)."""
         self.temperature = max(0.0, min(2.0, float(temperature)))
@@ -518,9 +514,7 @@ class RAGApp:
 
     # ── Conversation memory (FlaskChat-style summarization) ────────────
 
-    def _tool_chat(
-        self, history: list, file_id: str | None = None, algo: str = "toc"
-    ) -> str:
+    def _tool_chat(self, history: list, file_id: str | None = None, algo: str = "toc") -> str:
         """Tool-calling chat turn: FULL history as messages, retrieval via
         the search_documents tool. The system prompt announces the attached
         document so the model knows it can retrieve from it. algo selects
@@ -546,7 +540,7 @@ class RAGApp:
             (persona + "\n\n" if persona else "")
             + "You are a document assistant. "
             + (
-                f"The user has a document attached: \"{doc_name}\". "
+                f'The user has a document attached: "{doc_name}". '
                 if doc_name
                 else "The user may have a document attached. "
             )
@@ -614,7 +608,11 @@ class RAGApp:
                 parts = []
                 for r in results[:6]:
                     secs = r.get("sections") or []
-                    head = f"[{', '.join(secs)}]" if secs else f"[chunk {r.get('chunk_index', r.get('index', '?'))}]"
+                    head = (
+                        f"[{', '.join(secs)}]"
+                        if secs
+                        else f"[chunk {r.get('chunk_index', r.get('index', '?'))}]"
+                    )
                     parts.append(f"{head} {(r.get('text') or r.get('preview') or '')[:1200]}")
                 return "\n\n".join(parts) if parts else "No relevant content found."
             if name == "get_toc":
@@ -630,11 +628,9 @@ class RAGApp:
         ("give an example to set up this" -> "...set up the NCO module").
         First turn or LLM failure -> the question passes through unchanged.
         Runs on the router (search-side) model — the cheap one."""
-        prior = [
-            m
-            for m in history
-            if m.get("role") in ("user", "assistant") and m.get("content")
-        ][-6:]  # last few exchanges
+        prior = [m for m in history if m.get("role") in ("user", "assistant") and m.get("content")][
+            -6:
+        ]  # last few exchanges
         if not prior or not question or not question.strip():
             return question
         conv = "\n".join(f"{m['role']}: {m['content'][:800]}" for m in prior)
@@ -654,8 +650,7 @@ class RAGApp:
                     {
                         "role": "user",
                         "content": (
-                            f"Conversation:\n{conv[-12000:]}\n\n"
-                            f"Follow-up question: {question}"
+                            f"Conversation:\n{conv[-12000:]}\n\nFollow-up question: {question}"
                         ),
                     },
                 ],
@@ -795,9 +790,7 @@ def build_app(app: RAGApp | None = None) -> Any:
                         label="Mode",
                         info="toc: TOC-first navigation (default) · standard: single retrieval · loop: iterative verification",
                     )
-                chatbot = gr.Chatbot(
-                    label="rag-kit", height=480, latex_delimiters=latex_delimiters
-                )
+                chatbot = gr.Chatbot(label="rag-kit", height=480, latex_delimiters=latex_delimiters)
                 with gr.Row():
                     question_tb = gr.Textbox(
                         label="",
@@ -1049,9 +1042,7 @@ def build_app(app: RAGApp | None = None) -> Any:
                 visible=initial_persona == "Custom…",
             )
             with gr.Row():
-                a_temp = gr.Slider(
-                    0.0, 2.0, value=app.temperature, step=0.05, label="Temperature"
-                )
+                a_temp = gr.Slider(0.0, 2.0, value=app.temperature, step=0.05, label="Temperature")
                 a_topp = gr.Slider(
                     0.0,
                     1.0,

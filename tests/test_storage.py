@@ -141,9 +141,7 @@ def test_delete_file_purges_learned_toc_and_cache(tmp_db):
     storage = Storage(tmp_db)
     fid = _create_test_file(storage)
     storage.set_toc(fid, "1. Section A\n2. Section B")
-    storage.learned_toc_add(
-        file_id=fid, heading="Learned heading", chunk_start=0, chunk_end=2
-    )
+    storage.learned_toc_add(file_id=fid, heading="Learned heading", chunk_start=0, chunk_end=2)
     storage.cache_put(f"file:{fid}", "some question", "some question", "answer", [])
     # an unrelated namespace-scoped cache row must survive
     storage.cache_put("ns:other", "q", "q", "a", [])

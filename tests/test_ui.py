@@ -103,7 +103,9 @@ class TestRAGApp:
     # ── Provider registry + role assignment ────────────────────────────
 
     def test_add_provider_and_list(self, app):
-        msg = app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        msg = app.add_provider(
+            "DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1"
+        )
         assert "Saved" in msg
         assert app.list_providers() == ["DeepSeek"]
 
@@ -190,6 +192,8 @@ class TestRAGApp:
     def test_tool_chat_system_prompt_includes_personality(self, app, monkeypatch):
         import rag_kit._ui as ui
 
+        app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        app.set_roles("DeepSeek")
         app.set_answerer(0.7, None, "You are a pirate.")
         captured = {}
 
@@ -206,7 +210,10 @@ class TestRAGApp:
     def test_provider_thinking_toggle_wires_roles(self, app):
         app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
         app.add_provider(
-            "Router", "qwen/qwen3.5-flash-02-23", "https://openrouter.ai/api/v1", "sk-2",
+            "Router",
+            "qwen/qwen3.5-flash-02-23",
+            "https://openrouter.ai/api/v1",
+            "sk-2",
             thinking=False,
         )
         app.set_roles("DeepSeek", "Router")
@@ -228,12 +235,13 @@ class TestRAGApp:
     def test_converter_role_wires_router_converter(self, app):
         app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
         app.add_provider(
-            "Qwen", "qwen/qwen3.5-flash-02-23", "https://openrouter.ai/api/v1", "sk-2",
+            "Qwen",
+            "qwen/qwen3.5-flash-02-23",
+            "https://openrouter.ai/api/v1",
+            "sk-2",
             thinking=True,
         )
-        app.add_provider(
-            "Mini", "openai/gpt-4o-mini", "https://openrouter.ai/api/v1", "sk-3"
-        )
+        app.add_provider("Mini", "openai/gpt-4o-mini", "https://openrouter.ai/api/v1", "sk-3")
         app.set_roles("DeepSeek", "Qwen", "Mini")
         cfg = app._llm_config()
         assert cfg.router_reasoning is True
@@ -288,6 +296,8 @@ class TestRAGApp:
         it and advertises the search_documents tool."""
         import rag_kit._ui as ui
 
+        app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        app.set_roles("DeepSeek")
         captured = {}
 
         def fake_ct(messages, config, tools, executor, **kw):
@@ -312,7 +322,11 @@ class TestRAGApp:
 
         def fake_algo(file_id, question, top_k=8):
             return [
-                {"chunk_index": 3, "sections": ["8. OSC - Oscillator Module"], "text": "NCO content here"},
+                {
+                    "chunk_index": 3,
+                    "sections": ["8. OSC - Oscillator Module"],
+                    "text": "NCO content here",
+                },
             ]
 
         monkeypatch.setattr(app.rag, "algorithmic_search", fake_algo)
@@ -355,7 +369,9 @@ class TestRAGApp:
         monkeypatch.setattr(app.rag, "search", raw)
         monkeypatch.setattr(app.rag, "algorithmic_search", algo)
         monkeypatch.setattr(app.rag, "loop_retrieve", loop)
-        assert "standard chunk" in app._tool_executor(1, "standard")("search_documents", {"query": "q"})
+        assert "standard chunk" in app._tool_executor(1, "standard")(
+            "search_documents", {"query": "q"}
+        )
         assert "toc chunk" in app._tool_executor(1, "toc")("search_documents", {"query": "q"})
         assert "loop chunk" in app._tool_executor(1, "loop")("search_documents", {"query": "q"})
         assert calls == ["standard", "toc", "loop"]
@@ -376,8 +392,10 @@ class TestRAGApp:
 
         monkeypatch.setattr(RAGApp, "_tool_chat", fake_tool_chat)
         monkeypatch.setattr(RAGApp, "ask", fake_ask)
-        history = [{"role": "user", "content": "What is the NCO?"},
-                   {"role": "assistant", "content": "NCO is an oscillator."}]
+        history = [
+            {"role": "user", "content": "What is the NCO?"},
+            {"role": "assistant", "content": "NCO is an oscillator."},
+        ]
         app.chat_turn(history, "give example to setup this")
         assert captured["q"] == "give example to setup this"
         assert captured["conv"] is not None
@@ -458,9 +476,11 @@ class TestChatTurn:
 
     def test_citations_not_attached_to_answer(self, app, monkeypatch):
         # ChatGPT-style: answers are plain — no chunk/citation references
-        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
-            "The answer",
-            "File #1 chunk 0 (score: 1.00)",
+        app.ask = (
+            lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
+                "The answer",
+                "File #1 chunk 0 (score: 1.00)",
+            )
         )
         history = app.chat_turn([], "q", file_id="1")
         assert history[1]["content"] == "The answer"
@@ -484,9 +504,11 @@ class TestSummarization:
         return h
 
     def test_no_summary_below_threshold(self, app, monkeypatch):
-        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
-            "ans",
-            "",
+        app.ask = (
+            lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
+                "ans",
+                "",
+            )
         )
         h = app.chat_turn(self._history(6), "q6")
         # 6 old turns + new turn = 7, still under threshold -> no memory msg
@@ -494,9 +516,11 @@ class TestSummarization:
         assert len(h) == 14
 
     def test_summary_after_threshold(self, app, monkeypatch):
-        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
-            "ans",
-            "",
+        app.ask = (
+            lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
+                "ans",
+                "",
+            )
         )
         app._summarize_messages = lambda msgs: "TEST SUMMARY"
         h = app.chat_turn(self._history(8), "q8")
@@ -507,9 +531,11 @@ class TestSummarization:
         assert any(m["content"] == "q7" for m in h)
 
     def test_summary_persists_across_followups(self, app, monkeypatch):
-        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
-            "ans",
-            "",
+        app.ask = (
+            lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
+                "ans",
+                "",
+            )
         )
         app._summarize_messages = lambda msgs: "TEST SUMMARY"
         h = app.chat_turn(self._history(8), "q8")

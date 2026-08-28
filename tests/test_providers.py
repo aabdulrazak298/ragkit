@@ -303,9 +303,7 @@ class TestTwoStageChain:
         cfg = replace(_thinking_cfg(), router_converter_model=None)
         fake = _FakeClient(["reasoning text here", '{"ok": true}'])
         monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
-        result = json_completion(
-            [{"role": "user", "content": "hi"}], config=cfg
-        )
+        result = json_completion([{"role": "user", "content": "hi"}], config=cfg)
         assert result == {"ok": True}
         assert fake.calls[1]["model"] == "qwen/qwen3.5-flash-02-23"
         assert fake.calls[1]["reasoning"] == {"enabled": False}
@@ -424,13 +422,19 @@ class TestToolChat:
             results.append(name)
             return f"result:{name}"
 
-        answer, log = chat_completion_tools([{"role": "user", "content": "q"}], _tool_cfg(), [], executor)
+        answer, log = chat_completion_tools(
+            [{"role": "user", "content": "q"}], _tool_cfg(), [], executor
+        )
         assert answer == "done"
         assert results == ["get_toc", "search_documents"]
         # both tool results appended before round 2
         msgs2 = fake.calls[1]["messages"]
         assert msgs2[-2] == {"role": "tool", "tool_call_id": "c1", "content": "result:get_toc"}
-        assert msgs2[-1] == {"role": "tool", "tool_call_id": "c2", "content": "result:search_documents"}
+        assert msgs2[-1] == {
+            "role": "tool",
+            "tool_call_id": "c2",
+            "content": "result:search_documents",
+        }
 
     def test_no_tool_support_falls_back_to_plain(self, monkeypatch):
         class _RaisingClient:
@@ -467,7 +471,11 @@ class TestToolChat:
         fake = _FakeMsgClient([tool_msg] * 10)
         monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
         answer, log = chat_completion_tools(
-            [{"role": "user", "content": "q"}], _tool_cfg(), [], lambda name, args: "r", max_rounds=3
+            [{"role": "user", "content": "q"}],
+            _tool_cfg(),
+            [],
+            lambda name, args: "r",
+            max_rounds=3,
         )
         assert "could not finish" in answer
         assert len(log) == 3
@@ -491,7 +499,9 @@ class TestToolChat:
         def executor(name, args):
             raise ValueError("index missing")
 
-        answer, log = chat_completion_tools([{"role": "user", "content": "q"}], _tool_cfg(), [], executor)
+        answer, log = chat_completion_tools(
+            [{"role": "user", "content": "q"}], _tool_cfg(), [], executor
+        )
         assert answer == "recovered"
         assert "Tool error" in log[0]["result"]
         assert fake.calls[1]["messages"][-1]["content"] == "Tool error: index missing"
@@ -514,7 +524,10 @@ class TestToolChat:
         fake = _FakeMsgClient([tool_msg, final_msg])
         monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
         answer, log = chat_completion_tools(
-            [{"role": "user", "content": "q"}], _tool_cfg(), [], lambda name, args: "r",
+            [{"role": "user", "content": "q"}],
+            _tool_cfg(),
+            [],
+            lambda name, args: "r",
             max_tool_calls=1,
         )
         assert answer == "final answer"

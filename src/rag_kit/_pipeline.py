@@ -1335,7 +1335,11 @@ class Pipeline:
             f"Document: {info.get('filename', 'unknown')}\n\n"
             f"TOC:\n{toc[:1000] if toc else 'None'}\n\n"
             f"Relevant excerpts:\n{chr(10).join(chunks_text)}\n\n"
-            + (f"Conversation so far (resolve 'this'/'it' against it):\n{conversation}\n\n" if conversation else "")
+            + (
+                f"Conversation so far (resolve 'this'/'it' against it):\n{conversation}\n\n"
+                if conversation
+                else ""
+            )
             + f"Question: {question}\n\n"
             + (
                 f"{config.personality.strip()}\n\n"
@@ -1684,9 +1688,7 @@ class Pipeline:
             '{"headings": [{"chunk_index": 0, "heading": "..."}, '
             '{"chunk_index": 1, "heading": "..."}]}'
         )
-        res = json_completion(
-            [{"role": "user", "content": prompt}], config=self._config
-        )
+        res = json_completion([{"role": "user", "content": prompt}], config=self._config)
         out: dict[int, str] = {}
         for h in res.get("headings", []):
             try:
@@ -1983,9 +1985,7 @@ class Pipeline:
             '{"terms": ["term 1", "term 2", ...]}'
         )
         try:
-            result = json_completion(
-                [{"role": "user", "content": prompt}], config=self._config
-            )
+            result = json_completion([{"role": "user", "content": prompt}], config=self._config)
             terms = [str(t).strip() for t in result.get("terms", [])][:7]
             terms = [t for t in terms if t]
             return terms if terms else [question]
@@ -2142,7 +2142,11 @@ class Pipeline:
             f"Question: {question}",
             "",
             (
-                (f"{config.personality.strip()}\n\n" if config.personality and config.personality.strip() else "")
+                (
+                    f"{config.personality.strip()}\n\n"
+                    if config.personality and config.personality.strip()
+                    else ""
+                )
                 + "Answer comprehensively based on the content above. "
                 "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
                 "Reference the section name when citing specific information. "

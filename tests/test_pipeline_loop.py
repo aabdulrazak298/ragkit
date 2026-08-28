@@ -110,6 +110,7 @@ def test_query_toc_fallback_when_retrieval_empty(monkeypatch):
     """Overview questions ('what is this about?') with zero retrieval hits
     are answered deterministically from the file TOC instead of dead-ending
     with 'No relevant content'."""
+
     class _TocStorage(_FakeStorage):
         def get_toc(self, file_id) -> str:  # noqa: D102
             return "1. Authorized users\n2. Software installation\n3. Termination"
@@ -131,6 +132,7 @@ def test_query_toc_fallback_when_retrieval_empty(monkeypatch):
 
 def test_query_abstains_without_toc(monkeypatch):
     """No TOC and no retrieval hits -> the original abstain still applies."""
+
     class _NoTocStorage(_FakeStorage):
         def get_toc(self, file_id) -> str | None:
             return None
