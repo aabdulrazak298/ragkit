@@ -62,7 +62,7 @@ def test_loop_stops_when_verified_sufficient(monkeypatch):
             {"chunk_index": idx, "score": 0.9, "source": "fts5", "text": f"chunk {idx} content"}
         ]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         calls["verify"] += 1
         if calls["verify"] == 1:
             return {"sufficient": False, "next_terms": ["pressure switch"]}
@@ -92,7 +92,7 @@ def test_loop_abstains_on_no_results(monkeypatch):
     def fake_search(storage=None, query=None, **kw):
         return []
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         return {"sufficient": False, "next_terms": ["term"]}
 
     monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
@@ -166,7 +166,7 @@ def test_loop_stops_on_no_new_chunks(monkeypatch):
     def fake_search(storage=None, query=None, **kw):
         return [{"chunk_index": 5, "score": 0.8, "source": "fts5", "text": "chunk 5 content"}]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         return {"sufficient": False, "next_terms": ["alpha", "beta"]}
 
     monkeypatch.setattr(pipeline_mod, "search_chunks", fake_search)
@@ -190,7 +190,7 @@ def test_loop_respects_max_loops(monkeypatch):
     def fake_search(storage=None, query=None, **kw):
         return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5", "text": "new content"}]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         call_n["n"] += 1
         return {"sufficient": False, "next_terms": [f"term {call_n['n']}"]}
 
@@ -212,7 +212,7 @@ def test_loop_dedupes_repeated_terms(monkeypatch):
         searched.append(query)
         return [{"chunk_index": 3, "score": 0.6, "source": "fts5", "text": "chunk 3 content"}]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         # Verifier keeps suggesting the SAME term — dedup must stop it.
         return {"sufficient": False, "next_terms": ["same term"]}
 
@@ -240,7 +240,7 @@ def test_loop_hard_cap_clamps_at_10(monkeypatch):
     def fake_search(storage=None, query=None, **kw):
         return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5", "text": "new content"}]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         call_n["n"] += 1
         return {"sufficient": False, "next_terms": [f"term {call_n['n']}"]}
 
@@ -275,7 +275,7 @@ def test_loop_cap_boundary_at_10_respects_lower_value(monkeypatch):
     def fake_search(storage=None, query=None, **kw):
         return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5", "text": "new content"}]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         call_n["n"] += 1
         return {"sufficient": False, "next_terms": [f"term {call_n['n']}"]}
 
@@ -312,7 +312,7 @@ def test_loop_gate_skips_verifier_when_evidence_strong(monkeypatch):
             }
         ]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         calls["verify"] += 1
         return {"sufficient": True, "next_terms": []}
 
@@ -348,7 +348,7 @@ def test_loop_gate_not_fired_still_verifies(monkeypatch):
             }
         ]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         calls["verify"] += 1
         return {"sufficient": True, "next_terms": []}
 
@@ -382,7 +382,7 @@ def test_loop_gate_default_off(monkeypatch):
             }
         ]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         calls["verify"] += 1
         return {"sufficient": True, "next_terms": []}
 
@@ -561,7 +561,7 @@ def test_loop_query_teaches_toc_from_collected_chunks(monkeypatch):
             },
         ]
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         # Verifier never satisfied — loop runs to max_loops.
         return {"sufficient": False, "next_terms": [f"term {next(seq)}"]}
 
@@ -626,7 +626,7 @@ def test_ai_headings_used_when_enabled(monkeypatch):
     p._toc_ai_headings = True
     ai_calls = {"n": 0}
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         ai_calls["n"] += 1
         # Router model returns structured headings — note chunk 0 gets a
         # MEANINGFUL heading, not the first-line truncation.
@@ -665,7 +665,7 @@ def test_ai_headings_fallback_to_deterministic(monkeypatch):
     )
     p._toc_ai_headings = True
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         raise RuntimeError("router down")
 
     monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
@@ -692,7 +692,7 @@ def test_ai_headings_off_uses_deterministic(monkeypatch):
     )
     ai_calls = {"n": 0}
 
-    def fake_json(messages, model=None):
+    def fake_json(messages, model=None, **kwargs):
         ai_calls["n"] += 1
         return {"headings": [{"chunk_index": 0, "heading": "AI generated"}]}
 

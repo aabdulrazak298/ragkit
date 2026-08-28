@@ -64,6 +64,13 @@ class LLMConfig:
     thinking_enabled: bool = True  # DeepSeek: thinking mode on/off (default: on for V4)
     reasoning: bool | None = None  # OpenRouter: reasoning.enabled toggle (None = provider default)
     max_tokens: int | None = None  # output cap; None = provider default (unbounded)
+    # Search-side ("router") model — routing, TOC heading selection, term
+    # expansion, loop verifier, memory summarization. None = fall back to
+    # the answer model (see resolve_router_config). All three must be set
+    # together to take effect; unset ones inherit from the answer config.
+    router_model: str | None = None
+    router_base_url: str | None = None
+    router_api_key: str | None = None
 
     def __post_init__(self):
         # Universal OpenAI-compatible support:
@@ -380,29 +387,60 @@ def agentic_chat(
         return "The search timed out. Please try a more specific question.", trace
 
 
+def resolve_router_config(config: LLMConfig | None) -> LLMConfig | None:
+    """Resolve the search-side (router) LLM config.
+
+    Fallback chain:
+      1. router-specific settings on the config (router_model set)
+      2. the answer config itself (same model/base/key)
+      3. ambient env (OPENROUTER_KEY / OPENAI_API_KEY + ROUTER_MODEL)
+      4. None — callers fall back to deterministic mocks
+
+    So a user who only configures ONE LLM gets it used everywhere;
+    a user who configures a separate cheap router model gets that.
+    """
+    if config is not None and config.router_model:
+        return LLMConfig(
+            model=config.router_model,
+            base_url=config.router_base_url or config.base_url,
+            api_key=config.router_api_key or config.api_key,
+            temperature=0.1,
+        )
+    if config is not None and config.api_key:
+        return LLMConfig(
+            model=config.model,
+            base_url=config.base_url,
+            api_key=config.api_key,
+            temperature=0.1,
+        )
+    key = os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
+    if key:
+        return LLMConfig(model=ROUTER_MODEL, base_url=ROUTER_BASE_URL, api_key=key)
+    return None
+
+
 def router_completion(
     messages: list[dict],
     timeout: int = 60,
+    config: LLMConfig | None = None,
 ) -> str:
-    """Lightweight LLM call using the cheap router model.
+    """Lightweight LLM call for routing/heading selection.
 
-    Used for question routing (TECHNICAL vs GENERAL) and
-    heading selection. Uses a fast, cheap model.
+    Uses the resolved router model (see resolve_router_config) — a
+    separate cheap model when configured, the answer model otherwise.
     """
-    api_key = os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
-    base_url = ROUTER_BASE_URL
-
-    if not api_key:
+    cfg = resolve_router_config(config)
+    if cfg is None:
         return _mock_answer(messages)
 
     resp = _get_client().post(
-        f"{base_url}/chat/completions",
+        f"{cfg.base_url}/chat/completions",
         headers={
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
         },
         json={
-            "model": ROUTER_MODEL,
+            "model": cfg.model,
             "messages": messages,
             "temperature": 0.1,
             "max_tokens": 4096,
@@ -418,26 +456,26 @@ def json_completion(
     messages: list[dict],
     timeout: int = 60,
     model: str | None = None,
+    config: LLMConfig | None = None,
 ) -> dict:
     """Call LLM for structured JSON output.
 
-    Returns parsed JSON dict. Uses router model by default.
+    Returns parsed JSON dict. Uses the resolved router model by default
+    (see resolve_router_config); an explicit `model` overrides it.
     Add \"Output ONLY valid JSON.\" to the prompt.
     """
-    api_key = os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
-    base_url = ROUTER_BASE_URL
-
-    if not api_key:
+    cfg = resolve_router_config(config)
+    if cfg is None:
         return {}
 
     resp = _get_client().post(
-        f"{base_url}/chat/completions",
+        f"{cfg.base_url}/chat/completions",
         headers={
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
         },
         json={
-            "model": model or ROUTER_MODEL,
+            "model": model or cfg.model,
             "messages": messages,
             "temperature": 0.05,  # Low temp for structured output
             "max_tokens": 2048,

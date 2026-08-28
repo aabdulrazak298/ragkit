@@ -9,7 +9,7 @@ Contract under test:
 5. Embeddings endpoint is overridable via RAGKIT_EMBED_URL.
 """
 
-from rag_kit._llm import LLMConfig
+from rag_kit._llm import LLMConfig, json_completion, resolve_router_config, router_completion
 from rag_kit._vector_index import _embedding_url
 
 DEFAULT_OR = "https://openrouter.ai/api/v1"
@@ -103,3 +103,69 @@ class TestEmbedUrl:
         assert _embedding_url() == "https://proxy/v1/embeddings"
         monkeypatch.delenv("RAGKIT_EMBED_URL", raising=False)
         assert _embedding_url() == "https://openrouter.ai/api/v1/embeddings"
+
+
+class TestRouterConfig:
+    """Search-side (router) model resolution — separate slot with
+    fallback to the answer model when only one LLM is configured."""
+
+    def test_router_slot_wins(self, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        cfg = LLMConfig(
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com/v1",
+            api_key="answer-key",
+            router_model="google/gemini-2.5-flash-lite",
+            router_base_url="https://openrouter.ai/api/v1",
+            router_api_key="router-key",
+        )
+        r = resolve_router_config(cfg)
+        assert r is not None
+        assert r.model == "google/gemini-2.5-flash-lite"
+        assert r.base_url == "https://openrouter.ai/api/v1"
+        assert r.api_key == "router-key"
+
+    def test_router_slot_inherits_blanks_from_answer(self, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        cfg = LLMConfig(
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com/v1",
+            api_key="answer-key",
+            router_model="deepseek-r1",
+        )
+        r = resolve_router_config(cfg)
+        assert r is not None
+        assert r.model == "deepseek-r1"
+        assert r.base_url == "https://api.deepseek.com/v1"
+        assert r.api_key == "answer-key"
+
+    def test_falls_back_to_answer_model(self, monkeypatch):
+        """Only ONE configured LLM -> it powers search-side roles too."""
+        monkeypatch.delenv("OPENROUTER_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        cfg = LLMConfig(
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com/v1",
+            api_key="only-key",
+        )
+        r = resolve_router_config(cfg)
+        assert r is not None
+        assert r.model == "deepseek-v4-flash"
+        assert r.base_url == "https://api.deepseek.com/v1"
+        assert r.api_key == "only-key"
+
+    def test_env_fallback_uses_hardcoded_router(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_KEY", "env-key")
+        r = resolve_router_config(None)
+        assert r is not None
+        assert r.api_key == "env-key"
+        assert r.model == "google/gemini-2.5-flash-lite"
+
+    def test_no_config_no_env_mocks(self, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        assert resolve_router_config(None) is None
+        assert router_completion([{"role": "user", "content": "hi"}]).startswith("[Mock")
+        assert json_completion([{"role": "user", "content": "hi"}]) == {}

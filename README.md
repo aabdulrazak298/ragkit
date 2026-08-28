@@ -163,6 +163,17 @@ semantic search, set `RAGKIT_EMBED_URL` for an OpenAI-compatible
 embeddings endpoint (OpenRouter works out of the box with
 `OPENROUTER_KEY`, `embed_backend="api"`).
 
+### Router model (search-side LLM)
+
+Question routing, TOC heading selection, search-term expansion, the loop
+verifier, and chat-memory summaries run on a **separate router model**
+(OpenRouter `google/gemini-2.5-flash-lite` by default). Configure it
+independently in the UI Settings tab (`LLMConfig.router_model` /
+`router_base_url` / `router_api_key`), or leave it blank — **the router
+falls back to your answer model** when only one LLM is configured, and
+falls back to ambient `OPENROUTER_KEY`/`OPENAI_API_KEY` when neither is
+set.
+
 ## Local Web UI
 
 Run rag-kit as a local app with a browser UI (Gradio):

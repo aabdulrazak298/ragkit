@@ -54,34 +54,65 @@ class RAGApp:
         self.llm_base_url: str = ""
         self.llm_api_key: str = ""
         self.llm_provider: str = "Custom"
+        # Search-side model (routing, TOC headings, term expansion,
+        # verifier, memory). Blank = fall back to the answer model.
+        self.router_model: str = ""
+        self.router_base_url: str = ""
+        self.router_api_key: str = ""
 
     # ── LLM settings ───────────────────────────────────────────────────
 
-    def set_llm(self, model: str, base_url: str, api_key: str, provider: str = "Custom") -> str:
-        """Store LLM settings. Blank fields fall back to env/defaults."""
+    def set_llm(
+        self,
+        model: str,
+        base_url: str,
+        api_key: str,
+        provider: str = "Custom",
+        router_model: str | None = None,
+        router_base_url: str | None = None,
+        router_api_key: str | None = None,
+    ) -> str:
+        """Store LLM settings. Blank fields fall back to env/defaults.
+
+        router_*: the search-side model (routing/headings/expansion/
+        verifier). Blank router fields = use the answer model for those
+        roles too.
+        """
         self.llm_model = (model or "").strip()
         self.llm_base_url = (base_url or "").strip()
         self.llm_api_key = (api_key or "").strip()
         self.llm_provider = provider
+        self.router_model = (router_model or "").strip()
+        self.router_base_url = (router_base_url or "").strip()
+        self.router_api_key = (router_api_key or "").strip()
         cfg = self._llm_config()
-        return f"LLM set: {cfg.model} @ {cfg.base_url}"
+        r = f"router={cfg.router_model or cfg.model}" if cfg.router_model else "router=answer-model"
+        return f"LLM set: {cfg.model} @ {cfg.base_url} ({r})"
 
     def _llm_config(self) -> LLMConfig:
         model = self.llm_model or None
         base_url = self.llm_base_url or None
         api_key = self.llm_api_key or None
         if model is None and base_url is None and api_key is None:
-            return LLMConfig()  # fully env-resolved
-        model = model or DEFAULT_MODEL
-        # DeepSeek direct expects the bare id ("deepseek-v4-flash"),
-        # while OpenRouter uses the slashed id — map per provider.
-        if self.llm_provider == "DeepSeek" and model.startswith("deepseek/"):
-            model = model.split("/", 1)[-1]
-        return LLMConfig(
-            model=model,
-            base_url=base_url or DEFAULT_BASE_URL,
-            api_key=api_key,
-        )
+            cfg = LLMConfig()  # fully env-resolved
+        else:
+            model = model or DEFAULT_MODEL
+            # DeepSeek direct expects the bare id ("deepseek-v4-flash"),
+            # while OpenRouter uses the slashed id — map per provider.
+            if self.llm_provider == "DeepSeek" and model.startswith("deepseek/"):
+                model = model.split("/", 1)[-1]
+            cfg = LLMConfig(
+                model=model,
+                base_url=base_url or DEFAULT_BASE_URL,
+                api_key=api_key,
+            )
+        # Router slot: only set when the user provided a router model;
+        # blank fields inherit from the answer config at call time.
+        if self.router_model:
+            cfg.router_model = self.router_model
+            cfg.router_base_url = self.router_base_url or None
+            cfg.router_api_key = self.router_api_key or None
+        return cfg
 
     # ── Documents ──────────────────────────────────────────────────────
 
@@ -422,6 +453,7 @@ def build_app(app: RAGApp | None = None) -> Any:
         # ── Settings tab ───────────────────────────────────────────────
         with gr.Tab("Settings"):
             gr.Markdown(
+                "**Answer model** — writes the answers you read. "
                 "Pick your provider, paste your API key — done. "
                 "Leave the model blank for the default."
             )
@@ -436,6 +468,24 @@ def build_app(app: RAGApp | None = None) -> Any:
                 value=app.llm_base_url or DEFAULT_BASE_URL,
             )
             llm_key = gr.Textbox(label="API key", type="password")
+            gr.Markdown(
+                "**Router model (optional)** — powers search-side work: question routing, "
+                "TOC heading selection, search-term expansion, the loop verifier, and chat "
+                "memory summaries. Leave blank to reuse the answer model for these roles "
+                "(one LLM, everything). Blank sub-fields inherit from the answer model."
+            )
+            router_model = gr.Textbox(
+                label="Router model (blank = answer model)",
+                value=app.router_model,
+            )
+            router_base = gr.Textbox(
+                label="Router base URL (blank = same as answer)",
+                value=app.router_base_url,
+            )
+            router_key = gr.Textbox(
+                label="Router API key (blank = same as answer)",
+                type="password",
+            )
             llm_btn = gr.Button("Save LLM settings")
             llm_status = gr.Markdown()
 
@@ -443,14 +493,30 @@ def build_app(app: RAGApp | None = None) -> Any:
                 preset = PROVIDER_PRESETS.get(provider, "")
                 return gr.update(value=preset) if preset else gr.update(value="")
 
-            def _save(model, base, key, provider):
+            def _save(model, base, key, provider, r_model, r_base, r_key):
                 resolved = resolve_provider_base(provider, base)
-                return app.set_llm(model, resolved, key)
+                return app.set_llm(
+                    model,
+                    resolved,
+                    key,
+                    provider,
+                    router_model=r_model,
+                    router_base_url=r_base,
+                    router_api_key=r_key,
+                )
 
             provider_dd.change(_fill_base, inputs=provider_dd, outputs=llm_base)
             llm_btn.click(
                 _save,
-                inputs=[llm_model, llm_base, llm_key, provider_dd],
+                inputs=[
+                    llm_model,
+                    llm_base,
+                    llm_key,
+                    provider_dd,
+                    router_model,
+                    router_base,
+                    router_key,
+                ],
                 outputs=llm_status,
             )
 

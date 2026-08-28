@@ -61,6 +61,42 @@ class TestRAGApp:
         assert cfg.base_url == "https://my.proxy/v1"
         assert cfg.api_key == "sk-test"
 
+    def test_set_llm_with_router_slot(self, app):
+        app.set_llm(
+            "deepseek/deepseek-v4-flash",
+            "https://api.deepseek.com/v1",
+            "sk-answer",
+            provider="DeepSeek",
+            router_model="google/gemini-2.5-flash-lite",
+            router_base_url="https://openrouter.ai/api/v1",
+            router_api_key="sk-router",
+        )
+        cfg = app._llm_config()
+        assert cfg.model == "deepseek-v4-flash"
+        assert cfg.router_model == "google/gemini-2.5-flash-lite"
+        assert cfg.router_base_url == "https://openrouter.ai/api/v1"
+        assert cfg.router_api_key == "sk-router"
+
+    def test_set_llm_blank_router_falls_back_to_answer(self, app):
+        app.set_llm("my-model", "https://my.proxy/v1", "sk-test")
+        cfg = app._llm_config()
+        assert cfg.router_model is None  # one LLM powers everything
+
+    def test_router_config_reaches_ragsystem(self, app):
+        app.set_llm(
+            "deepseek/deepseek-v4-flash",
+            "https://api.deepseek.com/v1",
+            "sk-answer",
+            provider="DeepSeek",
+            router_model="deepseek-r1",
+        )
+        app.rag.set_llm_config(app._llm_config())
+        from rag_kit._llm import resolve_router_config
+
+        r = resolve_router_config(app.rag._pipeline._config)
+        assert r is not None and r.model == "deepseek-r1"
+        assert r.api_key == "sk-answer"  # blank key inherited
+
     def test_deepseek_provider_maps_model_prefix(self, app):
         # DeepSeek direct API wants "deepseek-v4-flash", not "deepseek/deepseek-v4-flash"
         app.set_llm(

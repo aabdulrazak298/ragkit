@@ -1114,6 +1114,7 @@ class Pipeline:
                 res = json_completion(
                     [{"role": "user", "content": prompt}],
                     model=verifier_model,
+                    config=self._config,
                 )
                 verifier_latency += _time.monotonic() - _t_v
                 return res
@@ -1549,7 +1550,9 @@ class Pipeline:
             '{"headings": [{"chunk_index": 0, "heading": "..."}, '
             '{"chunk_index": 1, "heading": "..."}]}'
         )
-        res = json_completion([{"role": "user", "content": prompt}])
+        res = json_completion(
+            [{"role": "user", "content": prompt}], config=self._config
+        )
         out: dict[int, str] = {}
         for h in res.get("headings", []):
             try:
@@ -1741,7 +1744,8 @@ class Pipeline:
                         ),
                     },
                     {"role": "user", "content": question},
-                ]
+                ],
+                config=self._config,
             )
             result = result.strip().upper()
             if "TECHNICAL" in result:
@@ -1797,7 +1801,8 @@ class Pipeline:
             result = json_completion(
                 [
                     {"role": "user", "content": prompt},
-                ]
+                ],
+                config=self._config,
             )
             selected_paths = result.get("selected_headings", [])
         except Exception:
@@ -1840,7 +1845,9 @@ class Pipeline:
             '{"terms": ["term 1", "term 2", ...]}'
         )
         try:
-            result = json_completion([{"role": "user", "content": prompt}])
+            result = json_completion(
+                [{"role": "user", "content": prompt}], config=self._config
+            )
             terms = [str(t).strip() for t in result.get("terms", [])][:7]
             terms = [t for t in terms if t]
             return terms if terms else [question]
