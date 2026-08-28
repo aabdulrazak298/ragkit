@@ -13,7 +13,10 @@ from rag_kit._ui import PROVIDER_PRESETS, RAGApp, resolve_provider_base
 
 @pytest.fixture
 def app(tmp_path):
-    return RAGApp(db_path=str(tmp_path / "ui_test.db"))
+    return RAGApp(
+        db_path=str(tmp_path / "ui_test.db"),
+        settings_path=str(tmp_path / "providers.json"),
+    )
 
 
 @pytest.fixture
@@ -96,6 +99,56 @@ class TestRAGApp:
         r = resolve_router_config(app.rag._pipeline._config)
         assert r is not None and r.model == "deepseek-r1"
         assert r.api_key == "sk-answer"  # blank key inherited
+
+    # ── Provider registry + role assignment ────────────────────────────
+
+    def test_add_provider_and_list(self, app):
+        msg = app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        assert "Saved" in msg
+        assert app.list_providers() == ["DeepSeek"]
+
+    def test_add_provider_requires_name(self, app):
+        assert "required" in app.add_provider("", "m", "u", "k")
+
+    def test_remove_provider_clears_roles(self, app):
+        app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        app.add_provider("OpenRouter", "gpt-x", "https://openrouter.ai/api/v1", "sk-2")
+        app.set_roles("DeepSeek", "OpenRouter")
+        assert app.answer_role == "DeepSeek" and app.search_role == "OpenRouter"
+        app.remove_provider("OpenRouter")
+        assert app.search_role == ""  # role cleared, no dangling pointer
+        assert "DeepSeek" in app.list_providers()
+
+    def test_set_roles_one_llm_fallback(self, app):
+        app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        assert "search=answer-model" in app.set_roles("DeepSeek", "Same as answer")
+        cfg = app._llm_config()
+        assert cfg.model == "deepseek-v4-flash"
+        assert cfg.router_model is None  # one LLM powers everything
+
+    def test_set_roles_separate_router(self, app):
+        app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        app.add_provider(
+            "Router", "google/gemini-2.5-flash-lite", "https://openrouter.ai/api/v1", "sk-2"
+        )
+        app.set_roles("DeepSeek", "Router")
+        cfg = app._llm_config()
+        assert cfg.model == "deepseek-v4-flash"
+        assert cfg.router_model == "google/gemini-2.5-flash-lite"
+        assert cfg.router_base_url == "https://openrouter.ai/api/v1"
+        assert cfg.router_api_key == "sk-2"
+
+    def test_set_roles_rejects_unknown_answer(self, app):
+        assert "needs a saved provider" in app.set_roles("Nope")
+
+    def test_provider_settings_persist(self, tmp_path):
+        p = str(tmp_path / "providers.json")
+        a = RAGApp(db_path=str(tmp_path / "a.db"), settings_path=p)
+        a.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        a.set_roles("DeepSeek")
+        b = RAGApp(db_path=str(tmp_path / "b.db"), settings_path=p)
+        assert b.list_providers() == ["DeepSeek"]
+        assert b.answer_role == "DeepSeek"
 
     def test_deepseek_provider_maps_model_prefix(self, app):
         # DeepSeek direct API wants "deepseek-v4-flash", not "deepseek/deepseek-v4-flash"

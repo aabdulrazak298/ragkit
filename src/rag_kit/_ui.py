@@ -10,6 +10,8 @@ Design contract:
 
 from __future__ import annotations
 
+import json
+import os
 from typing import Any
 
 from rag_kit import LLMConfig, RAGSystem
@@ -48,19 +50,138 @@ class RAGApp:
     """UI-facing wrapper around RAGSystem. Every method returns plain values
     (strings / lists) ready for Gradio components — and for unit tests."""
 
-    def __init__(self, db_path: str | None = None, embed_backend: str = "local"):
+    def __init__(
+        self,
+        db_path: str | None = None,
+        embed_backend: str = "local",
+        settings_path: str | None = None,
+    ):
         self.rag = RAGSystem(db_path=db_path, embed_backend=embed_backend)
-        self.llm_model: str = ""
-        self.llm_base_url: str = ""
-        self.llm_api_key: str = ""
-        self.llm_provider: str = "Custom"
-        # Search-side model (routing, TOC headings, term expansion,
-        # verifier, memory). Blank = fall back to the answer model.
-        self.router_model: str = ""
-        self.router_base_url: str = ""
-        self.router_api_key: str = ""
+        # Registry of named LLM endpoints: name -> {model, base_url, api_key}.
+        # Roles pick from it: answer_role (writes answers) and search_role
+        # (routing/headings/expansion/verifier; "" = reuse the answer model).
+        self.providers: dict[str, dict[str, str]] = {}
+        self.answer_role: str = ""
+        self.search_role: str = ""
+        self._settings_path = settings_path or os.path.expanduser("~/.rag-kit/providers.json")
+        self._load_settings()
 
     # ── LLM settings ───────────────────────────────────────────────────
+
+    def _load_settings(self) -> None:
+        try:
+            with open(self._settings_path, encoding="utf-8") as f:
+                data = json.load(f)
+            self.providers = data.get("providers", {})
+            self.answer_role = data.get("answer_role", "")
+            self.search_role = data.get("search_role", "")
+        except (OSError, ValueError):
+            pass
+
+    def _save_settings(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self._settings_path), exist_ok=True)
+            with open(self._settings_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "providers": self.providers,
+                        "answer_role": self.answer_role,
+                        "search_role": self.search_role,
+                    },
+                    f,
+                    indent=2,
+                )
+            os.chmod(self._settings_path, 0o600)  # holds API keys
+        except OSError:
+            pass  # settings persistence is best-effort
+
+    def add_provider(self, name: str, model: str, base_url: str, api_key: str) -> str:
+        """Add or replace a named provider endpoint. Blank model = default."""
+        name = (name or "").strip()
+        if not name:
+            return "Provider name is required."
+        self.providers[name] = {
+            "model": (model or "").strip() or DEFAULT_MODEL,
+            "base_url": (base_url or "").strip(),
+            "api_key": (api_key or "").strip(),
+        }
+        self._save_settings()
+        return f"Saved provider '{name}'."
+
+    def remove_provider(self, name: str) -> str:
+        name = (name or "").strip()
+        if name not in self.providers:
+            return f"No provider named '{name}'."
+        del self.providers[name]
+        if self.answer_role == name:
+            self.answer_role = ""
+        if self.search_role == name:
+            self.search_role = ""
+        self._save_settings()
+        return f"Removed provider '{name}'."
+
+    def list_providers(self) -> list[str]:
+        return list(self.providers)
+
+    def set_roles(self, answer: str, search: str = "") -> str:
+        """Assign which saved provider powers the answer and search roles.
+        search='' (or 'Same as answer') = one LLM does everything."""
+        if answer not in self.providers:
+            return f"Answer role needs a saved provider (have: {self.list_providers() or 'none'})."
+        self.answer_role = answer
+        self.search_role = search if search in self.providers and search != answer else ""
+        self._save_settings()
+        r = self.providers[answer]["model"]
+        s = (
+            f"search={self.providers[self.search_role]['model']}"
+            if self.search_role
+            else "search=answer-model"
+        )
+        return f"Answer: {answer} ({r}) · {s}"
+
+    @staticmethod
+    def _entry_values(
+        entry: dict[str, str], inherit: dict[str, str] | None = None
+    ) -> tuple[str, str | None, str | None]:
+        """(model, base_url, api_key) for a provider entry, with blanks
+        inherited from another entry. Blanks stay None (env-resolved later
+        by LLMConfig) so the answer model's key never leaks into the
+        router slot just because the environment has one."""
+        model = entry["model"]
+        if entry["base_url"].startswith("https://api.deepseek.com") and model.startswith(
+            "deepseek/"
+        ):
+            model = model.split("/", 1)[-1]  # DeepSeek direct: bare id
+        base_url = entry["base_url"] or (inherit or {}).get("base_url") or None
+        api_key = entry["api_key"] or (inherit or {}).get("api_key") or None
+        return model, base_url, api_key
+
+    def _provider_config(self, name: str) -> LLMConfig | None:
+        entry = self.providers.get(name)
+        if not entry:
+            return None
+        model, base_url, api_key = self._entry_values(entry)
+        return LLMConfig(model=model, base_url=base_url, api_key=api_key)
+
+    def _llm_config(self) -> LLMConfig:
+        a_entry = self.providers.get(self.answer_role)
+        if not a_entry:
+            return LLMConfig()  # fully env-resolved
+        model, base_url, api_key = self._entry_values(a_entry)
+        cfg = LLMConfig(model=model, base_url=base_url, api_key=api_key)
+        # Search-side role: separate provider when chosen, else the answer
+        # model handles routing/headings/expansion/verifier too. Blank
+        # router sub-fields inherit from the answer provider (not env).
+        if self.search_role and self.search_role != self.answer_role:
+            s_entry = self.providers.get(self.search_role)
+            if s_entry:
+                r_model, r_base, r_key = self._entry_values(s_entry, inherit=a_entry)
+                cfg.router_model = r_model
+                cfg.router_base_url = r_base
+                cfg.router_api_key = r_key
+        return cfg
+
+    # ── Back-compat shim (used by tests and older callers) ─────────────
 
     def set_llm(
         self,
@@ -72,47 +193,18 @@ class RAGApp:
         router_base_url: str | None = None,
         router_api_key: str | None = None,
     ) -> str:
-        """Store LLM settings. Blank fields fall back to env/defaults.
-
-        router_*: the search-side model (routing/headings/expansion/
-        verifier). Blank router fields = use the answer model for those
-        roles too.
-        """
-        self.llm_model = (model or "").strip()
-        self.llm_base_url = (base_url or "").strip()
-        self.llm_api_key = (api_key or "").strip()
-        self.llm_provider = provider
-        self.router_model = (router_model or "").strip()
-        self.router_base_url = (router_base_url or "").strip()
-        self.router_api_key = (router_api_key or "").strip()
+        """Register a provider and assign roles — legacy convenience API."""
+        self.add_provider(provider, model, base_url, api_key)
+        self.answer_role = provider
+        if router_model:
+            self.add_provider("Router", router_model, router_base_url or "", router_api_key or "")
+            self.search_role = "Router"
+        else:
+            self.search_role = ""
+        self._save_settings()
         cfg = self._llm_config()
         r = f"router={cfg.router_model or cfg.model}" if cfg.router_model else "router=answer-model"
         return f"LLM set: {cfg.model} @ {cfg.base_url} ({r})"
-
-    def _llm_config(self) -> LLMConfig:
-        model = self.llm_model or None
-        base_url = self.llm_base_url or None
-        api_key = self.llm_api_key or None
-        if model is None and base_url is None and api_key is None:
-            cfg = LLMConfig()  # fully env-resolved
-        else:
-            model = model or DEFAULT_MODEL
-            # DeepSeek direct expects the bare id ("deepseek-v4-flash"),
-            # while OpenRouter uses the slashed id — map per provider.
-            if self.llm_provider == "DeepSeek" and model.startswith("deepseek/"):
-                model = model.split("/", 1)[-1]
-            cfg = LLMConfig(
-                model=model,
-                base_url=base_url or DEFAULT_BASE_URL,
-                api_key=api_key,
-            )
-        # Router slot: only set when the user provided a router model;
-        # blank fields inherit from the answer config at call time.
-        if self.router_model:
-            cfg.router_model = self.router_model
-            cfg.router_base_url = self.router_base_url or None
-            cfg.router_api_key = self.router_api_key or None
-        return cfg
 
     # ── Documents ──────────────────────────────────────────────────────
 
@@ -453,74 +545,110 @@ def build_app(app: RAGApp | None = None) -> Any:
         # ── Settings tab ───────────────────────────────────────────────
         with gr.Tab("Settings"):
             gr.Markdown(
-                "**Answer model** — writes the answers you read. "
-                "Pick your provider, paste your API key — done. "
-                "Leave the model blank for the default."
+                "**1 · Providers** — add the LLM endpoints you use "
+                "(one or several). The API key is stored locally in "
+                "`~/.rag-kit/providers.json`."
             )
-            provider_dd = gr.Dropdown(
-                list(PROVIDER_PRESETS.keys()),
-                value="OpenRouter",
-                label="Provider",
+            with gr.Row():
+                p_name = gr.Textbox(label="Name (e.g. DeepSeek)", scale=1)
+                p_model = gr.Textbox(label="Model (blank = default)", scale=2)
+            with gr.Row():
+                p_preset = gr.Dropdown(
+                    list(PROVIDER_PRESETS.keys()),
+                    value="OpenRouter",
+                    label="Provider type (auto-fills base URL)",
+                    scale=1,
+                )
+                p_base = gr.Textbox(label="Base URL", scale=2)
+                p_key = gr.Textbox(label="API key", type="password", scale=2)
+            with gr.Row():
+                add_btn = gr.Button("+ Add provider", variant="primary")
+                rem_dd = gr.Dropdown(label="Remove provider", choices=app.list_providers())
+                rem_btn = gr.Button("Remove")
+            prov_list = gr.Textbox(
+                label="Saved providers",
+                lines=3,
+                interactive=False,
+                value=_fmt_providers(app),
             )
-            llm_model = gr.Textbox(label="Model (optional)", value=app.llm_model or DEFAULT_MODEL)
-            llm_base = gr.Textbox(
-                label="Base URL (auto-filled by provider)",
-                value=app.llm_base_url or DEFAULT_BASE_URL,
-            )
-            llm_key = gr.Textbox(label="API key", type="password")
+            prov_status = gr.Markdown()
+
             gr.Markdown(
-                "**Router model (optional)** — powers search-side work: question routing, "
-                "TOC heading selection, search-term expansion, the loop verifier, and chat "
-                "memory summaries. Leave blank to reuse the answer model for these roles "
-                "(one LLM, everything). Blank sub-fields inherit from the answer model."
+                "**2 · Roles** — which saved provider answers, and which does "
+                "the search-side work (routing, TOC headings, term expansion, "
+                "verifier, memory). *Same as answer* = one LLM for everything."
             )
-            router_model = gr.Textbox(
-                label="Router model (blank = answer model)",
-                value=app.router_model,
+            answer_dd = gr.Dropdown(
+                label="Answer model",
+                choices=app.list_providers(),
+                value=app.answer_role or None,
             )
-            router_base = gr.Textbox(
-                label="Router base URL (blank = same as answer)",
-                value=app.router_base_url,
+            search_dd = gr.Dropdown(
+                label="Search model (router)",
+                choices=["Same as answer"] + app.list_providers(),
+                value=app.search_role or "Same as answer",
             )
-            router_key = gr.Textbox(
-                label="Router API key (blank = same as answer)",
-                type="password",
-            )
-            llm_btn = gr.Button("Save LLM settings")
-            llm_status = gr.Markdown()
+            roles_btn = gr.Button("Save roles")
+            roles_status = gr.Markdown()
 
-            def _fill_base(provider):
-                preset = PROVIDER_PRESETS.get(provider, "")
-                return gr.update(value=preset) if preset else gr.update(value="")
-
-            def _save(model, base, key, provider, r_model, r_base, r_key):
-                resolved = resolve_provider_base(provider, base)
-                return app.set_llm(
-                    model,
-                    resolved,
-                    key,
-                    provider,
-                    router_model=r_model,
-                    router_base_url=r_base,
-                    router_api_key=r_key,
+            def _refresh_providers():
+                choices = app.list_providers()
+                return (
+                    gr.update(choices=choices),
+                    gr.update(choices=["Same as answer"] + choices),
+                    _fmt_providers(app),
                 )
 
-            provider_dd.change(_fill_base, inputs=provider_dd, outputs=llm_base)
-            llm_btn.click(
-                _save,
-                inputs=[
-                    llm_model,
-                    llm_base,
-                    llm_key,
-                    provider_dd,
-                    router_model,
-                    router_base,
-                    router_key,
-                ],
-                outputs=llm_status,
+            def _add(name, model, base, key, preset):
+                resolved = resolve_provider_base(preset, base)
+                msg = app.add_provider(name, model, resolved, key)
+                r1, r2, provs = _refresh_providers()
+                return msg, r1, r2, provs
+
+            def _remove(name):
+                msg = app.remove_provider(name)
+                r1, r2, provs = _refresh_providers()
+                return msg, r1, r2, provs
+
+            def _save_roles(answer, search):
+                search = "" if search == "Same as answer" else search
+                return app.set_roles(answer, search)
+
+            add_btn.click(
+                _add,
+                inputs=[p_name, p_model, p_base, p_key, p_preset],
+                outputs=[prov_status, rem_dd, search_dd, prov_list],
+            )
+            rem_btn.click(
+                _remove,
+                inputs=[rem_dd],
+                outputs=[prov_status, rem_dd, search_dd, prov_list],
+            )
+            roles_btn.click(
+                _save_roles,
+                inputs=[answer_dd, search_dd],
+                outputs=roles_status,
             )
 
     return demo
+
+
+def _fmt_providers(app: RAGApp) -> str:
+    """One-line-per-provider summary for the Settings tab (keys never shown)."""
+    if not app.providers:
+        return "(none yet — add your first provider above)"
+    lines = []
+    for name, entry in app.providers.items():
+        role = []
+        if name == app.answer_role:
+            role.append("answer")
+        if name == app.search_role:
+            role.append("search")
+        tag = f"  [{', '.join(role)}]" if role else ""
+        base = entry.get("base_url") or "(env default)"
+        key = "key ✓" if entry.get("api_key") else "key via env"
+        lines.append(f"{name}: {entry.get('model')} @ {base} ({key}){tag}")
+    return "\n".join(lines)
 
 
 def _extract_id(choice: str | list | None) -> str | None:
