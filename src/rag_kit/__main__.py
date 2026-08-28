@@ -5,7 +5,7 @@ import os
 import sys
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rag-kit",
         description="Standalone RAG for text files — load, search, query with LLM",
@@ -63,6 +63,23 @@ def main():
     d_p = sub.add_parser("delete", help="Delete a file")
     d_p.add_argument("file_id", type=int)
 
+    # ui
+    ui_p = sub.add_parser("ui", help="Launch the Gradio web UI in your browser")
+    ui_p.add_argument("--host", default="127.0.0.1", help="Bind address (default 127.0.0.1)")
+    ui_p.add_argument("--port", type=int, default=7860, help="Port (default 7860)")
+    ui_p.add_argument("--share", action="store_true", help="Create a temporary public share link")
+    ui_p.add_argument(
+        "--embed-backend",
+        default="api",
+        choices=["api", "local"],
+        help="Vector backend: api (OpenRouter embeddings) or local (MiniLM, no key)",
+    )
+
+    return parser
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
 
     from rag_kit import RAGSystem
@@ -149,6 +166,19 @@ def main():
     elif args.command == "delete":
         ok = rag.delete_file(args.file_id)
         print("Deleted." if ok else "Not found.")
+
+    elif args.command == "ui":
+        try:
+            from rag_kit._ui import RAGApp, build_app
+
+            demo = build_app(RAGApp(db_path=args.db, embed_backend=args.embed_backend))
+        except ImportError:
+            print(
+                'The web UI needs gradio. Install it with:  pip install "rag-kit[ui]"',
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        demo.launch(server_name=args.host, server_port=args.port, share=args.share)
 
 
 if __name__ == "__main__":

@@ -161,6 +161,24 @@ overrides it. Embeddings: OpenRouter by default, or set `RAGKIT_EMBED_URL`
 for an OpenAI-compatible embeddings endpoint (local MiniLM is the
 zero-API-cost alternative via `embed_backend="local"`).
 
+## Local Web UI
+
+Run rag-kit as a local app with a browser UI (Gradio):
+
+```bash
+pip install "rag-kit[ui]"
+rag-kit ui                 # opens http://127.0.0.1:7860
+rag-kit ui --port 8080     # custom port
+rag-kit ui --share         # temporary public link (for demos)
+rag-kit ui --embed-backend local   # no-API-key semantic search (MiniLM)
+```
+
+The UI has four tabs — **Ask** (standard / TOC-first / loop modes with
+citations), **Search** (raw chunk retrieval), **Documents** (upload files or
+URLs, list, delete), and **Settings** (LLM model, base URL, API key — blank
+fields fall back to your environment). The UI runs entirely on your machine;
+`--share` is the only path that creates an external link.
+
 ## License
 
 MIT

@@ -43,6 +43,7 @@ pptx = ["python-pptx>=1.0"]
 epub = ["ebooklib>=0.17", "beautifulsoup4>=4.0"]
 odt = ["odfpy>=1.4"]
 rtf = ["striprtf>=0.0"]
+ui = ["gradio>=4.44"]
 llm = ["httpx>=0.27"]
 postgres = ["psycopg2-binary>=2.9"]
 all = [
@@ -55,6 +56,7 @@ all = [
     "rag-kit[rtf]",
     "rag-kit[keywords]",
     "rag-kit[ocr]",
+    "rag-kit[ui]",
     "rag-kit[llm]",
     "rag-kit[postgres]",
 ]

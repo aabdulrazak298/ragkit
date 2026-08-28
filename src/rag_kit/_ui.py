@@ -1,0 +1,262 @@
+"""Gradio web UI — run rag-kit as a local app: `rag-kit ui`.
+
+Design contract:
+- The app logic lives in RAGApp (plain Python, zero gradio imports) so it is
+  unit-testable without the optional dependency installed.
+- build_app() is the ONLY gradio touchpoint; it imports gradio lazily and
+  raises a friendly error if it's missing (install: pip install "rag-kit[ui]").
+- Gradio is not a core dependency — the library stays lightweight.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from rag_kit import LLMConfig, RAGSystem
+
+# Defaults mirrored from _llm.py (kept here so the UI can show them).
+DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
+DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+class RAGApp:
+    """UI-facing wrapper around RAGSystem. Every method returns plain values
+    (strings / lists) ready for Gradio components — and for unit tests."""
+
+    def __init__(self, db_path: str | None = None, embed_backend: str = "api"):
+        self.rag = RAGSystem(db_path=db_path, embed_backend=embed_backend)
+        self.llm_model: str = ""
+        self.llm_base_url: str = ""
+        self.llm_api_key: str = ""
+
+    # ── LLM settings ───────────────────────────────────────────────────
+
+    def set_llm(self, model: str, base_url: str, api_key: str) -> str:
+        """Store LLM settings. Blank fields fall back to env/defaults."""
+        self.llm_model = (model or "").strip()
+        self.llm_base_url = (base_url or "").strip()
+        self.llm_api_key = (api_key or "").strip()
+        cfg = self._llm_config()
+        return f"LLM set: {cfg.model} @ {cfg.base_url}"
+
+    def _llm_config(self) -> LLMConfig:
+        model = self.llm_model or None
+        base_url = self.llm_base_url or None
+        api_key = self.llm_api_key or None
+        if model is None and base_url is None and api_key is None:
+            return LLMConfig()  # fully env-resolved
+        return LLMConfig(
+            model=model or DEFAULT_MODEL,
+            base_url=base_url or DEFAULT_BASE_URL,
+            api_key=api_key,
+        )
+
+    # ── Documents ──────────────────────────────────────────────────────
+
+    def load_file(self, path: str, namespace: str = "default") -> tuple[str, str]:
+        try:
+            fid = self.rag.load_file(path, namespace=namespace)
+            return f"Loaded — file_id {fid} ({namespace})", str(fid)
+        except Exception as e:  # noqa: BLE001 — surface to the user
+            return f"Error: {e}", ""
+
+    def load_url(self, url: str, namespace: str = "default") -> tuple[str, str]:
+        try:
+            fid = self.rag.load_url(url, namespace=namespace)
+            return f"Loaded — file_id {fid} ({namespace})", str(fid)
+        except Exception as e:  # noqa: BLE001
+            return f"Error: {e}", ""
+
+    def list_files(self) -> list[str]:
+        rows = []
+        for f in self.rag.list():
+            rows.append(
+                f"#{f['file_id']}  {f['namespace']:12}  {f['filename']}  "
+                f"({f['total_chunks']} chunks)"
+            )
+        return rows or ["(no files loaded yet)"]
+
+    def delete_file(self, file_id: str) -> str:
+        try:
+            ok = self.rag.delete_file(int(file_id))
+            return "Deleted." if ok else "Not found."
+        except ValueError:
+            return "Invalid file id."
+
+    # ── Search / ask ───────────────────────────────────────────────────
+
+    def search(self, query: str, file_id: str | None = None) -> list[str]:
+        kwargs: dict[str, Any] = {"query": query}
+        if file_id and file_id.strip().isdigit():
+            kwargs["file_id"] = int(file_id)
+        try:
+            results = self.rag.search(**kwargs)
+        except Exception as e:  # noqa: BLE001
+            return [f"Error: {e}"]
+        if not results:
+            return ["No matches found."]
+        rows = []
+        for r in results[:10]:
+            ci = r.get("chunk_index", r.get("index", "?"))
+            rows.append(
+                f"File #{r.get('file_id', '?')} chunk {ci} "
+                f"(score: {r.get('score', 0):.2f})\n{r.get('preview', r.get('text', ''))[:220]}"
+            )
+        return rows
+
+    def ask(
+        self,
+        question: str,
+        file_id: str | None = None,
+        mode: str = "standard",
+        namespace: str | None = None,
+        max_loops: int = 4,
+    ) -> tuple[str, str]:
+        """Ask a question. Returns (answer, citations)."""
+        if not question.strip():
+            return "Enter a question first.", ""
+        try:
+            cfg = self._llm_config()
+            if mode == "loop":
+                if not (file_id and file_id.strip().isdigit()):
+                    return "Loop mode needs a file selected.", ""
+                result = self.rag.query_loop(
+                    int(file_id), question, max_loops=max_loops, llm_config=cfg
+                )
+            elif mode == "toc":
+                if not (file_id and file_id.strip().isdigit()):
+                    return "TOC-first mode needs a file selected.", ""
+                result = self.rag.query(int(file_id), question, toc_first=True, llm_config=cfg)
+            elif file_id and file_id.strip().isdigit():
+                result = self.rag.query(int(file_id), question, llm_config=cfg)
+            elif namespace:
+                result = self.rag.query(question, namespace=namespace, llm_config=cfg)
+            else:
+                result = self.rag.query(question, llm_config=cfg)
+        except Exception as e:  # noqa: BLE001
+            return f"Error: {e}", ""
+        citations = ""
+        if result.citations:
+            lines = []
+            for c in result.citations:
+                fid = c.get("file_id", "?")
+                ci = c.get("chunk_index", "?")
+                score = c.get("score", 0)
+                text = (c.get("text") or c.get("preview") or "")[:120].replace("\n", " ")
+                lines.append(f"File #{fid} chunk {ci} (score: {score:.2f})  {text}")
+            citations = "\n".join(lines)
+        return result.answer, citations
+
+
+def build_app(app: RAGApp | None = None) -> Any:
+    """Build the Gradio Blocks app. ImportError if gradio isn't installed."""
+    try:
+        import gradio as gr
+    except ImportError as e:  # pragma: no cover — exercised by the CLI hint
+        raise ImportError(
+            'gradio is required for the web UI. Install it with: pip install "rag-kit[ui]"'
+        ) from e
+
+    app = app or RAGApp()
+
+    with gr.Blocks(title="rag-kit") as demo:
+        gr.Markdown(
+            "# rag-kit\n"
+            "Local RAG over your documents. Load files, search chunks, "
+            "ask questions — everything stays on your machine."
+        )
+
+        # ── Ask tab ────────────────────────────────────────────────────
+        with gr.Tab("Ask"):
+            with gr.Row():
+                file_dd = gr.Dropdown(
+                    label="File (optional — leave blank for cross-file)",
+                    choices=app.list_files(),
+                    allow_custom_value=True,
+                )
+                mode_rd = gr.Radio(
+                    ["standard", "toc", "loop"],
+                    value="standard",
+                    label="Mode",
+                    info="standard: single retrieval · toc: TOC-first navigation · loop: iterative verification",
+                )
+            question_tb = gr.Textbox(label="Question", lines=2)
+            ask_btn = gr.Button("Ask", variant="primary")
+            answer_md = gr.Markdown(label="Answer")
+            citations_md = gr.Markdown(label="Citations")
+
+            def _ask(question, file_choice, mode):
+                file_id = _extract_id(file_choice)
+                answer, citations = app.ask(question, file_id=file_id, mode=mode)
+                return answer, citations or "_no citations_"
+
+            ask_btn.click(
+                _ask,
+                inputs=[question_tb, file_dd, mode_rd],
+                outputs=[answer_md, citations_md],
+            )
+
+        # ── Search tab ─────────────────────────────────────────────────
+        with gr.Tab("Search"):
+            s_file_dd = gr.Dropdown(
+                label="File (optional)", choices=app.list_files(), allow_custom_value=True
+            )
+            s_query_tb = gr.Textbox(label="Query")
+            s_btn = gr.Button("Search")
+            s_out = gr.Textbox(label="Results", lines=12)
+
+            def _search(query, file_choice):
+                return "\n\n".join(app.search(query, file_id=_extract_id(file_choice)))
+
+            s_btn.click(_search, inputs=[s_query_tb, s_file_dd], outputs=s_out)
+
+        # ── Documents tab ──────────────────────────────────────────────
+        with gr.Tab("Documents"):
+            up_file = gr.File(label="Upload a document", file_count="single")
+            up_url = gr.Textbox(label="...or load from URL")
+            up_btn = gr.Button("Load")
+            up_status = gr.Markdown()
+            doc_list = gr.Textbox(label="Loaded files", lines=10, interactive=False)
+            del_id = gr.Textbox(label="File id to delete")
+            del_btn = gr.Button("Delete")
+
+            def _load(file, url):
+                if file is not None:
+                    status, _ = app.load_file(file.name)
+                elif url.strip():
+                    status, _ = app.load_url(url.strip())
+                else:
+                    status = "Pick a file or enter a URL."
+                return status, _refresh_list()
+
+            def _refresh_list():
+                return "\n".join(app.list_files())
+
+            def _delete(fid):
+                return app.delete_file(fid), _refresh_list()
+
+            up_btn.click(_load, inputs=[up_file, up_url], outputs=[up_status, doc_list])
+            del_btn.click(_delete, inputs=[del_id], outputs=[up_status, doc_list])
+            doc_list.value = _refresh_list()
+
+        # ── Settings tab ───────────────────────────────────────────────
+        with gr.Tab("Settings"):
+            llm_model = gr.Textbox(label="Model", value=app.llm_model or DEFAULT_MODEL)
+            llm_base = gr.Textbox(label="Base URL", value=app.llm_base_url or DEFAULT_BASE_URL)
+            llm_key = gr.Textbox(label="API key", type="password")
+            llm_btn = gr.Button("Save LLM settings")
+            llm_status = gr.Markdown()
+
+            def _save(model, base, key):
+                return app.set_llm(model, base, key)
+
+            llm_btn.click(_save, inputs=[llm_model, llm_base, llm_key], outputs=llm_status)
+
+    return demo
+
+
+def _extract_id(choice: str | None) -> str | None:
+    """Pull the numeric file id out of a dropdown label like '#3  default  doc.pdf'."""
+    if not choice:
+        return None
+    return choice.strip().split()[0].lstrip("#")
