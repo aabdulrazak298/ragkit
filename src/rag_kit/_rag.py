@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from rag_kit._llm import LLMConfig
 from rag_kit._pipeline import Pipeline
 from rag_kit._processor import (
-    format_toc,
-    process_chunks,
     _build_section_mappings,
     _extract_headings_from_text,
+    format_toc,
+    process_chunks,
 )
 from rag_kit._search import search
 from rag_kit._storage import Storage, compute_content_hash
@@ -63,8 +62,9 @@ def _qnorm(text: str) -> str:
 class QueryResult:
     """Result of a query() call — answer text + citations + optional metrics."""
 
-    def __init__(self, answer: str, citations: list[dict] | None = None,
-                 metrics: dict | None = None):
+    def __init__(
+        self, answer: str, citations: list[dict] | None = None, metrics: dict | None = None
+    ):
         self.answer = answer
         self.citations = citations or []
         self.metrics = metrics or {}
@@ -109,11 +109,10 @@ class RAGSystem:
         self._max_files = max_files
         self._use_cache = use_cache
         self._cache_fuzzy = cache_fuzzy
-        self._vector_index = (
-            VectorIndex(embed_backend=embed_backend) if enable_vectors else None
-        )
+        self._vector_index = VectorIndex(embed_backend=embed_backend) if enable_vectors else None
         self._pipeline = Pipeline(
-            self._storage, llm_config,
+            self._storage,
+            llm_config,
             search_threshold=self._threshold,
             vector_index=self._vector_index,
             toc_ai_headings=toc_ai_headings,
@@ -243,8 +242,18 @@ class RAGSystem:
         """
         ext = os.path.splitext(path)[1].lower()
         text_exts = {
-            ".txt", ".md", ".csv", ".json", ".xml", ".html",
-            ".py", ".js", ".rs", ".yaml", ".yml", ".log",
+            ".txt",
+            ".md",
+            ".csv",
+            ".json",
+            ".xml",
+            ".html",
+            ".py",
+            ".js",
+            ".rs",
+            ".yaml",
+            ".yml",
+            ".log",
         }
 
         if ext in text_exts:
@@ -264,8 +273,8 @@ class RAGSystem:
             if not _has_meaningful_text(text):
                 # Try OCR if available
                 try:
-                    from tesserocr import PyTessBaseAPI
                     from pdf2image import convert_from_path
+                    from tesserocr import PyTessBaseAPI
 
                     tessdata_path = os.path.expanduser("~/.local/share/tessdata")
                     images = convert_from_path(path)
@@ -279,9 +288,9 @@ class RAGSystem:
                         text = ocr_text
                     else:
                         raise ValueError(
-                            f"PDF appears to be scanned images with no extractable text. "
-                            f"Install tesseract-ocr + pytesseract + pdf2image for OCR support, "
-                            f"or convert the document to text manually."
+                            "PDF appears to be scanned images with no extractable text. "
+                            "Install tesseract-ocr + pytesseract + pdf2image for OCR support, "
+                            "or convert the document to text manually."
                         )
                 except ImportError:
                     raise ValueError(
@@ -303,8 +312,10 @@ class RAGSystem:
                 raise ImportError("Install rag-kit[pptx] for PPTX support")
             prs = Presentation(path)
             text = "\n".join(
-                shape.text for slide in prs.slides
-                for shape in slide.shapes if hasattr(shape, "text")
+                shape.text
+                for slide in prs.slides
+                for shape in slide.shapes
+                if hasattr(shape, "text")
             )
             source_type = "pptx"
         elif ext == ".epub":
@@ -321,12 +332,13 @@ class RAGSystem:
             )
             # Strip HTML tags
             import re
+
             text = re.sub(r"<[^>]+>", " ", text)
             text = re.sub(r"\s+", " ", text).strip()
             source_type = "epub"
         elif ext == ".odt":
             try:
-                from odf import text, teletype
+                from odf import teletype, text
                 from odf.opendocument import load
             except ImportError:
                 raise ImportError("Install rag-kit[odt] for ODT support")
@@ -489,9 +501,7 @@ class RAGSystem:
             )
 
         if cache_ctx is not None and answer.strip():
-            self._storage.cache_put(
-                cache_ctx[0], cache_ctx[1], cache_ctx[2], answer, citations
-            )
+            self._storage.cache_put(cache_ctx[0], cache_ctx[1], cache_ctx[2], answer, citations)
         return QueryResult(answer=answer, citations=citations)
 
     async def aquery(
@@ -560,9 +570,7 @@ class RAGSystem:
             )
 
         if cache_ctx is not None and answer.strip():
-            self._storage.cache_put(
-                cache_ctx[0], cache_ctx[1], cache_ctx[2], answer, citations
-            )
+            self._storage.cache_put(cache_ctx[0], cache_ctx[1], cache_ctx[2], answer, citations)
         return QueryResult(answer=answer, citations=citations)
 
     def query_agentic(

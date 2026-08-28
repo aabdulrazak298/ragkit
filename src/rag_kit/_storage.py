@@ -11,10 +11,7 @@ import hashlib
 import json
 import os
 from datetime import datetime, timezone
-
-# Python 3.11+ has datetime.UTC, but older need timezone.utc
-_UTC = timezone.utc
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import (
     Column,
@@ -25,10 +22,12 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
-    event,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, relationship
+
+# Python 3.11+ has datetime.UTC, but older need timezone.utc
+_UTC = timezone.utc
 
 Base = declarative_base()
 
@@ -57,12 +56,8 @@ class RAGFile(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(_UTC))
     last_accessed = Column(DateTime, nullable=False, default=lambda: datetime.now(_UTC))
 
-    chunks = relationship(
-        "RAGChunk", back_populates="file", cascade="all, delete-orphan"
-    )
-    learned_toc = relationship(
-        "LearnedToc", back_populates="file", cascade="all, delete-orphan"
-    )
+    chunks = relationship("RAGChunk", back_populates="file", cascade="all, delete-orphan")
+    learned_toc = relationship("LearnedToc", back_populates="file", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_rag_files_namespace", namespace),
@@ -87,9 +82,7 @@ class RAGFile(Base):
             "toc_length": len(self.toc) if self.toc else 0,
             "section_mappings_present": bool(self.section_mappings),
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "last_accessed": (
-                self.last_accessed.isoformat() if self.last_accessed else None
-            ),
+            "last_accessed": (self.last_accessed.isoformat() if self.last_accessed else None),
         }
 
 
@@ -99,9 +92,7 @@ class RAGChunk(Base):
     __tablename__ = "rag_chunks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    file_id = Column(
-        Integer, ForeignKey("rag_files.id", ondelete="CASCADE"), nullable=False
-    )
+    file_id = Column(Integer, ForeignKey("rag_files.id", ondelete="CASCADE"), nullable=False)
     chunk_index = Column(Integer, nullable=False)
     chunk_text = Column(Text, nullable=False)
     keywords = Column(Text, nullable=True)
@@ -159,9 +150,7 @@ class LearnedToc(Base):
     __tablename__ = "learned_toc"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    file_id = Column(
-        Integer, ForeignKey("rag_files.id", ondelete="CASCADE"), nullable=False
-    )
+    file_id = Column(Integer, ForeignKey("rag_files.id", ondelete="CASCADE"), nullable=False)
     heading = Column(Text, nullable=False)  # heading-form title of the chunk
     chunk_start = Column(Integer, nullable=False)
     chunk_end = Column(Integer, nullable=False)
@@ -251,17 +240,12 @@ def _migrate_schema(engine: Engine):
         from sqlalchemy import text
 
         # Check if section_mappings column exists in rag_files
-        result = conn.execute(
-            text("PRAGMA table_info(rag_files)")
-        ).fetchall()
+        result = conn.execute(text("PRAGMA table_info(rag_files)")).fetchall()
         columns = {row[1] for row in result}
 
         if "section_mappings" not in columns:
             conn.execute(
-                text(
-                    "ALTER TABLE rag_files "
-                    "ADD COLUMN section_mappings TEXT DEFAULT NULL"
-                )
+                text("ALTER TABLE rag_files ADD COLUMN section_mappings TEXT DEFAULT NULL")
             )
 
     with engine.begin() as conn:
@@ -278,8 +262,7 @@ def _create_engine(db_path: str):
             import psycopg2  # noqa: F401
         except ImportError:
             raise ImportError(
-                "Install rag-kit[postgres] for PostgreSQL support: "
-                "pip install 'rag-kit[postgres]'"
+                "Install rag-kit[postgres] for PostgreSQL support: pip install 'rag-kit[postgres]'"
             )
     else:
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -391,9 +374,7 @@ class Storage:
         with self.session() as db:
             chunk = (
                 db.query(RAGChunk)
-                .filter(
-                    RAGChunk.file_id == file_id, RAGChunk.chunk_index == index
-                )
+                .filter(RAGChunk.file_id == file_id, RAGChunk.chunk_index == index)
                 .first()
             )
             if not chunk:
@@ -427,9 +408,7 @@ class Storage:
                     "id": c.id,
                     "index": c.chunk_index,
                     "text": c.chunk_text,
-                    "keywords": (
-                        json.loads(c.keywords_json) if c.keywords_json else []
-                    ),
+                    "keywords": (json.loads(c.keywords_json) if c.keywords_json else []),
                     "preview": c.preview or "",
                 }
                 for c in chunks
@@ -560,11 +539,7 @@ class Storage:
 
                 best = None
                 best_ratio = 0.0
-                for row in (
-                    db.query(QueryCache)
-                    .filter(QueryCache.scope == scope)
-                    .all()
-                ):
+                for row in db.query(QueryCache).filter(QueryCache.scope == scope).all():
                     ratio = fuzz.ratio(qnorm, row.qnorm)
                     if ratio > best_ratio:
                         best_ratio = ratio
@@ -626,9 +601,7 @@ class Storage:
         """Count cached entries and total hits (for observability)."""
         with self.session() as db:
             total = db.query(QueryCache).count()
-            hits = db.query(QueryCache).with_entities(
-                QueryCache.hits
-            ).all()
+            hits = db.query(QueryCache).with_entities(QueryCache.hits).all()
             return {"entries": total, "hits": sum(h for (h,) in hits)}
 
     def cache_top(self, n: int = 10) -> list[dict]:
@@ -638,19 +611,13 @@ class Storage:
         times it was answered from cache, and the last time.
         """
         with self.session() as db:
-            rows = (
-                db.query(QueryCache)
-                .order_by(QueryCache.hits.desc())
-                .limit(n)
-                .all()
-            )
+            rows = db.query(QueryCache).order_by(QueryCache.hits.desc()).limit(n).all()
             return [
                 {
                     "question": r.question,
                     "hits": r.hits,
                     "scope": r.scope,
-                    "last_hit_at": r.last_hit_at.isoformat()
-                    if r.last_hit_at else None,
+                    "last_hit_at": r.last_hit_at.isoformat() if r.last_hit_at else None,
                 }
                 for r in rows
             ]
@@ -689,17 +656,18 @@ class Storage:
                 matched = sorted(
                     c.get("chunk_index")
                     for c in cites
-                    if isinstance(c, dict) and c.get("matched")
-                    and c.get("chunk_index") is not None
+                    if isinstance(c, dict) and c.get("matched") and c.get("chunk_index") is not None
                 )
                 anchor = sorted(matched or idxs)
                 mid = anchor[len(anchor) // 2]
-                out.append({
-                    "question": r.question,
-                    "chunk_start": max(0, mid - 2),
-                    "chunk_end": mid + 2,
-                    "hits": r.hits,
-                })
+                out.append(
+                    {
+                        "question": r.question,
+                        "chunk_start": max(0, mid - 2),
+                        "chunk_end": mid + 2,
+                        "hits": r.hits,
+                    }
+                )
             return out
 
     def learned_toc_add(
@@ -747,9 +715,7 @@ class Storage:
             db.commit()
             return True  # new entry
 
-    def learned_toc_list(
-        self, file_id: int, limit: int = 50
-    ) -> list[dict]:
+    def learned_toc_list(self, file_id: int, limit: int = 50) -> list[dict]:
         """Chunk-derived TOC entries for a file (most-asked first)."""
         with self.session() as db:
             rows = (
@@ -773,11 +739,7 @@ class Storage:
     def learned_toc_stats(self, file_id: int) -> dict:
         """Count chunk-derived TOC entries for a file."""
         with self.session() as db:
-            total = (
-                db.query(LearnedToc)
-                .filter(LearnedToc.file_id == file_id)
-                .count()
-            )
+            total = db.query(LearnedToc).filter(LearnedToc.file_id == file_id).count()
             return {"entries": total}
 
     # ── Section Mappings ────────────────────────────────────────────
@@ -808,9 +770,7 @@ class Storage:
             except (json.JSONDecodeError, TypeError):
                 return []
 
-    def get_chunks_by_range(
-        self, file_id: int, chunk_start: int, chunk_end: int
-    ) -> list[dict]:
+    def get_chunks_by_range(self, file_id: int, chunk_start: int, chunk_end: int) -> list[dict]:
         """Get all chunks for a file within a given chunk index range."""
         with self.session() as db:
             chunks = (
@@ -828,9 +788,7 @@ class Storage:
                     "id": c.id,
                     "index": c.chunk_index,
                     "text": c.chunk_text,
-                    "keywords": (
-                        json.loads(c.keywords_json) if c.keywords_json else []
-                    ),
+                    "keywords": (json.loads(c.keywords_json) if c.keywords_json else []),
                     "preview": c.preview or "",
                     "offset": c.chunk_offset,
                 }
@@ -888,26 +846,109 @@ def _fts5_query_string(query: str) -> str:
     """
     import re
 
-    STOP_WORDS = {
-        "a", "an", "the", "is", "are", "was", "were", "be", "been",
-        "and", "or", "but", "in", "on", "at", "to", "for", "of",
-        "by", "with", "from", "what", "when", "where", "how", "why",
-        "who", "which", "this", "that", "these", "those", "it", "its",
-        "do", "does", "did", "will", "would", "can", "could", "may",
-        "might", "shall", "should", "has", "have", "had", "not", "no",
-        "if", "about", "into", "than", "then", "also", "very", "just",
-        "each", "all", "any", "both", "some", "such", "only", "need",
-        "needed", "before", "after", "during", "other", "more", "most",
-        "like", "make", "made", "use", "used", "using", "way", "ways",
-        "without", "within", "much", "many", "even", "well", "back",
-        "here", "there", "over", "under", "still", "yet", "already",
+    stop_words = {
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "by",
+        "with",
+        "from",
+        "what",
+        "when",
+        "where",
+        "how",
+        "why",
+        "who",
+        "which",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "can",
+        "could",
+        "may",
+        "might",
+        "shall",
+        "should",
+        "has",
+        "have",
+        "had",
+        "not",
+        "no",
+        "if",
+        "about",
+        "into",
+        "than",
+        "then",
+        "also",
+        "very",
+        "just",
+        "each",
+        "all",
+        "any",
+        "both",
+        "some",
+        "such",
+        "only",
+        "need",
+        "needed",
+        "before",
+        "after",
+        "during",
+        "other",
+        "more",
+        "most",
+        "like",
+        "make",
+        "made",
+        "use",
+        "used",
+        "using",
+        "way",
+        "ways",
+        "without",
+        "within",
+        "much",
+        "many",
+        "even",
+        "well",
+        "back",
+        "here",
+        "there",
+        "over",
+        "under",
+        "still",
+        "yet",
+        "already",
     }
 
     # Remove special characters — hyphens confuse FTS5 tokenizer (e.g. "p300-p312")
-    cleaned = re.sub(r'[^\w\s]', " ", query)
+    cleaned = re.sub(r"[^\w\s]", " ", query)
     terms = [t.strip().lower() for t in cleaned.split() if t.strip()]
     # Remove stop words and single chars
-    terms = [t for t in terms if t not in STOP_WORDS and len(t) > 1]
+    terms = [t for t in terms if t not in stop_words and len(t) > 1]
 
     if not terms:
         return ""

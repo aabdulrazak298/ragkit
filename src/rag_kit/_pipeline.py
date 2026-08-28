@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
 from rag_kit._llm import (
     LLMConfig,
-    chat_completion,
     achat_completion,
     agentic_chat,
+    chat_completion,
     json_completion,
     router_completion,
 )
 from rag_kit._reranker import rerank as semantic_rerank
-from rag_kit._search import search as search_chunks
 from rag_kit._search import _norm_minmax
+from rag_kit._search import search as search_chunks
 from rag_kit._storage import Storage
 from rag_kit._trimming import trim_chunks
 
@@ -32,22 +31,103 @@ MAX_LOOPS_CAP = 10
 # length cut — they are the discriminative vocabulary whose presence
 # in the top retrieved chunk signals the answer paragraph is in hand.
 _VERIFIER_STOP = {
-    "the", "a", "an", "and", "or", "of", "to", "in", "for", "on", "with",
-    "at", "by", "from", "as", "into", "about", "what", "how", "why", "when",
-    "where", "which", "who", "whom", "whose", "this", "that", "these",
-    "those", "it", "its", "is", "are", "was", "were", "be", "been", "being",
-    "do", "does", "did", "have", "has", "had", "will", "would", "could",
-    "should", "may", "might", "can", "shall", "not", "no", "yes", "than",
-    "then", "so", "if", "but", "also", "very", "just", "too", "only", "own",
-    "same", "both", "each", "few", "more", "most", "other", "some", "such",
-    "all", "any", "one", "two", "i", "you", "we", "they", "he", "she", "it",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "into",
+    "about",
+    "what",
+    "how",
+    "why",
+    "when",
+    "where",
+    "which",
+    "who",
+    "whom",
+    "whose",
+    "this",
+    "that",
+    "these",
+    "those",
+    "it",
+    "its",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "do",
+    "does",
+    "did",
+    "have",
+    "has",
+    "had",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "can",
+    "shall",
+    "not",
+    "no",
+    "yes",
+    "than",
+    "then",
+    "so",
+    "if",
+    "but",
+    "also",
+    "very",
+    "just",
+    "too",
+    "only",
+    "own",
+    "same",
+    "both",
+    "each",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "all",
+    "any",
+    "one",
+    "two",
+    "i",
+    "you",
+    "we",
+    "they",
+    "he",
+    "she",
+    "it",
 }
 
 
 def _content_tokens(text: str) -> set[str]:
     """Question/chunk content tokens: stopword-filtered, len>2."""
-    return {t for t in re.findall(r"[A-Za-z0-9]+", text.lower())
-            if t not in _VERIFIER_STOP and len(t) > 2}
+    return {
+        t
+        for t in re.findall(r"[A-Za-z0-9]+", text.lower())
+        if t not in _VERIFIER_STOP and len(t) > 2
+    }
 
 
 def _chunk_to_heading(text: str, max_len: int = 70) -> str:
@@ -101,7 +181,7 @@ def _chunk_to_heading(text: str, max_len: int = 70) -> str:
     else:
         idx = first.find(". ")
         if 5 < idx < max_len:
-            first = first[:idx + 1]
+            first = first[: idx + 1]
     # Collapse whitespace and truncate on word boundary
     flat = re.sub(r"\s+", " ", first).strip()
     if len(flat) > max_len:
@@ -110,7 +190,9 @@ def _chunk_to_heading(text: str, max_len: int = 70) -> str:
     return flat.strip().rstrip(".:;, ").capitalize()
 
 
-def _build_synthesis_prompt(info: dict, toc: str, chunks_text: list[str], question: str, terse: bool = False) -> list[str]:
+def _build_synthesis_prompt(
+    info: dict, toc: str, chunks_text: list[str], question: str, terse: bool = False
+) -> list[str]:
     """Build the synthesis prompt for the standard query pipeline.
 
     terse=True asks for a direct, concise answer — measurably fewer output
@@ -224,12 +306,14 @@ class Pipeline:
         for r in results[:10]:
             chunk_idx = r.get("chunk_index", r.get("index", 0))
             chunks_text.append(f"[chunk {chunk_idx}]\n{r['text']}")
-            citations.append({
-                "file_id": r.get("file_id", file_id),
-                "namespace": info.get("namespace", "default"),
-                "chunk_index": chunk_idx,
-                "score": r.get("score", 0),
-            })
+            citations.append(
+                {
+                    "file_id": r.get("file_id", file_id),
+                    "namespace": info.get("namespace", "default"),
+                    "chunk_index": chunk_idx,
+                    "score": r.get("score", 0),
+                }
+            )
 
         config = self._resolve_config(llm_config)
 
@@ -272,12 +356,14 @@ class Pipeline:
         for r in results[:10]:
             chunk_idx = r.get("chunk_index", r.get("index", 0))
             chunks_text.append(f"[chunk {chunk_idx}]\n{r['text']}")
-            citations.append({
-                "file_id": r.get("file_id", file_id),
-                "namespace": info.get("namespace", "default"),
-                "chunk_index": chunk_idx,
-                "score": r.get("score", 0),
-            })
+            citations.append(
+                {
+                    "file_id": r.get("file_id", file_id),
+                    "namespace": info.get("namespace", "default"),
+                    "chunk_index": chunk_idx,
+                    "score": r.get("score", 0),
+                }
+            )
 
         config = self._resolve_config(llm_config)
 
@@ -290,7 +376,9 @@ class Pipeline:
         return answer, citations
 
     def query_by_namespace(
-        self, question: str, namespace: str | None = None,
+        self,
+        question: str,
+        namespace: str | None = None,
         llm_config: LLMConfig | None = None,
     ) -> tuple[str, list[dict]]:
         """Cross-file query within a namespace (or all files).
@@ -339,12 +427,14 @@ class Pipeline:
             for c in chunks:
                 ci = c.get("chunk_index", c.get("index", 0))
                 sections.append(f"[file {fid}, chunk {ci}]\n{c['text']}")
-                citations.append({
-                    "file_id": fid,
-                    "namespace": info.get("namespace", "default"),
-                    "chunk_index": ci,
-                    "score": c.get("score", 0),
-                })
+                citations.append(
+                    {
+                        "file_id": fid,
+                        "namespace": info.get("namespace", "default"),
+                        "chunk_index": ci,
+                        "score": c.get("score", 0),
+                    }
+                )
 
         sections.append(f"\nQuestion: {question}")
         sections.append(
@@ -364,8 +454,12 @@ class Pipeline:
     # ── Agentic Query Pipeline ─────────────────────────────────────────
 
     def query_agentic(
-        self, file_id: int, question: str, llm_config: LLMConfig | None = None,
-        max_turns: int = 10, searcher_model: str | None = None,
+        self,
+        file_id: int,
+        question: str,
+        llm_config: LLMConfig | None = None,
+        max_turns: int = 10,
+        searcher_model: str | None = None,
         planner_model: str | None = None,
     ) -> tuple[str, list[dict], dict]:
         """Two-stage agentic RAG: planner + cheap executor + synthesizer.
@@ -410,6 +504,7 @@ class Pipeline:
 
         # ── Track metrics ──────────────────────────────────────────────
         import time as _time
+
         _t_start = _time.monotonic()
 
         # ── Planner: strong model plans search strategy ──────────────────
@@ -446,17 +541,86 @@ class Pipeline:
         toc_hints = ""
         if toc:
             question_words = set(question.lower().split())
-            stopwords = {"the", "a", "an", "is", "are", "was", "were", "be",
-                         "been", "has", "have", "had", "do", "does", "did",
-                         "will", "would", "could", "should", "may", "might",
-                         "can", "shall", "to", "of", "in", "for", "on", "with",
-                         "at", "by", "from", "as", "into", "about", "what",
-                         "how", "why", "when", "where", "which", "who", "whom",
-                         "this", "that", "these", "those", "it", "its", "i",
-                         "me", "my", "we", "our", "you", "your", "they", "them",
-                         "and", "or", "but", "not", "no", "if", "so", "than",
-                         "very", "just", "also", "more", "some", "any", "each",
-                         "every", "both", "few", "many", "much"}
+            stopwords = {
+                "the",
+                "a",
+                "an",
+                "is",
+                "are",
+                "was",
+                "were",
+                "be",
+                "been",
+                "has",
+                "have",
+                "had",
+                "do",
+                "does",
+                "did",
+                "will",
+                "would",
+                "could",
+                "should",
+                "may",
+                "might",
+                "can",
+                "shall",
+                "to",
+                "of",
+                "in",
+                "for",
+                "on",
+                "with",
+                "at",
+                "by",
+                "from",
+                "as",
+                "into",
+                "about",
+                "what",
+                "how",
+                "why",
+                "when",
+                "where",
+                "which",
+                "who",
+                "whom",
+                "this",
+                "that",
+                "these",
+                "those",
+                "it",
+                "its",
+                "i",
+                "me",
+                "my",
+                "we",
+                "our",
+                "you",
+                "your",
+                "they",
+                "them",
+                "and",
+                "or",
+                "but",
+                "not",
+                "no",
+                "if",
+                "so",
+                "than",
+                "very",
+                "just",
+                "also",
+                "more",
+                "some",
+                "any",
+                "each",
+                "every",
+                "both",
+                "few",
+                "many",
+                "much",
+            }
             keywords = question_words - stopwords
             if keywords:
                 matching_lines = []
@@ -465,10 +629,7 @@ class Pipeline:
                     if any(kw in line_lower for kw in keywords):
                         matching_lines.append(line.strip())
                 if matching_lines:
-                    toc_hints = (
-                        "TOC keyword matches:\n"
-                        + "\n".join(matching_lines[:8])
-                    )
+                    toc_hints = "TOC keyword matches:\n" + "\n".join(matching_lines[:8])
 
         # ── Advisor: when executor is stuck, suggest alternative terms ──
         def _ask_advisor(original_question: str, tried_queries: dict, context: str) -> str:
@@ -507,12 +668,12 @@ class Pipeline:
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search terms to find in the document."
+                            "description": "Search terms to find in the document.",
                         }
                     },
-                    "required": ["query"]
-                }
-            }
+                    "required": ["query"],
+                },
+            },
         }
 
         # Search dedup cache + early termination tracker
@@ -542,7 +703,7 @@ class Pipeline:
                         _consecutive_empty = 0
 
                     if not results:
-                        return f"[CACHED] No matching content found — tried \"{query}\" earlier."
+                        return f'[CACHED] No matching content found — tried "{query}" earlier.'
                     lines = []
                     for r in results:
                         ci = r.get("chunk_index", r.get("index", 0))
@@ -552,9 +713,10 @@ class Pipeline:
                     # ── Escalation to advisor when stuck ────────────
                     if _consecutive_empty >= 3:
                         advice = _ask_advisor(
-                            question, _query_cache,
+                            question,
+                            _query_cache,
                             f"I've done {_consecutive_empty} searches with no new findings. "
-                            f"What should I try next? Already tried: {list(_query_cache.keys())}"
+                            f"What should I try next? Already tried: {list(_query_cache.keys())}",
                         )
                         result_text += (
                             f"\n\n[ESCALATION to advisor — {_consecutive_empty} consecutive empty searches]\n"
@@ -580,9 +742,10 @@ class Pipeline:
                     msg = "No matching content found in the document."
                     if _consecutive_empty >= 3:
                         advice = _ask_advisor(
-                            question, _query_cache,
+                            question,
+                            _query_cache,
                             f"Searching for '{query}' returned nothing. "
-                            f"Already tried: {list(_query_cache.keys())}. Suggest different terms."
+                            f"Already tried: {list(_query_cache.keys())}. Suggest different terms.",
                         )
                         msg += (
                             f"\n\n[ESCALATION to advisor — {_consecutive_empty} consecutive empty searches]\n"
@@ -614,9 +777,10 @@ class Pipeline:
                 # ── Escalation to advisor when stuck ────────────
                 if _consecutive_empty >= 3:
                     advice = _ask_advisor(
-                        question, _query_cache,
+                        question,
+                        _query_cache,
                         f"Searching for terms returned only chunks I've already seen. "
-                        f"Already tried: {list(_query_cache.keys())}. Suggest different terms."
+                        f"Already tried: {list(_query_cache.keys())}. Suggest different terms.",
                     )
                     result_text += (
                         f"\n\n[ESCALATION to advisor — {_consecutive_empty} consecutive searches with no new chunks]\n"
@@ -628,16 +792,9 @@ class Pipeline:
             return f"Unknown tool: {name}"
 
         # Build searcher prompt with planner output + TOC hints
-        toc_section = (
-            f"Document TOC:\n{toc[:2000] if toc else 'No table of contents available.'}"
-        )
-        hints_section = (
-            f"\n\nTOC keyword matches:\n{toc_hints}"
-            if toc_hints else ""
-        )
-        plan_section = (
-            f"\n\nSearch strategy from advisor:\n{plan}"
-        )
+        toc_section = f"Document TOC:\n{toc[:2000] if toc else 'No table of contents available.'}"
+        hints_section = f"\n\nTOC keyword matches:\n{toc_hints}" if toc_hints else ""
+        plan_section = f"\n\nSearch strategy from advisor:\n{plan}"
         searcher_system = (
             f"You are a research assistant analyzing the document: {filename}\n\n"
             f"{toc_section}{hints_section}\n\n"
@@ -680,16 +837,19 @@ class Pipeline:
             if entry["tool_name"] == "search_document":
                 result = entry["result"]
                 import re
+
                 for match in re.finditer(r"\[chunk (\d+)\]", result):
                     ci = int(match.group(1))
                     chunk = self._storage.get_chunk(file_id, ci)
                     if chunk and (file_id, ci) not in seen_chunks:
                         seen_chunks.add((file_id, ci))
                         collected_texts.append(f"[chunk {ci}]\n{chunk['text']}")
-                        _chunk_texts.append({
-                            "chunk_index": ci,
-                            "text": chunk["text"],
-                        })
+                        _chunk_texts.append(
+                            {
+                                "chunk_index": ci,
+                                "text": chunk["text"],
+                            }
+                        )
 
         # ── Rerank collected chunks semantically before answering ─────
         if _chunk_texts and len(_chunk_texts) > 3:
@@ -716,9 +876,8 @@ class Pipeline:
             pass  # learning is best-effort; never break the answer
 
         # Check if searcher explicitly found nothing, or timed out/hit max turns with nothing
-        searcher_gave_up = (
-            "NO_RELEVANT_CONTENT_FOUND" in (searcher_answer or "").upper()
-            or (not collected_texts and "timed out" in (searcher_answer or "").lower())
+        searcher_gave_up = "NO_RELEVANT_CONTENT_FOUND" in (searcher_answer or "").upper() or (
+            not collected_texts and "timed out" in (searcher_answer or "").lower()
         )
 
         if searcher_gave_up or not collected_texts:
@@ -760,12 +919,14 @@ class Pipeline:
         citations = []
         for fid, ci in seen_chunks:
             chunk = self._storage.get_chunk(fid, ci)
-            citations.append({
-                "file_id": fid,
-                "namespace": info.get("namespace", "default"),
-                "chunk_index": ci,
-                "preview": (chunk or {}).get("text", "")[:150],
-            })
+            citations.append(
+                {
+                    "file_id": fid,
+                    "namespace": info.get("namespace", "default"),
+                    "chunk_index": ci,
+                    "preview": (chunk or {}).get("text", "")[:150],
+                }
+            )
 
         # Build metrics
         _total_latency = _time.monotonic() - _t_start
@@ -796,9 +957,12 @@ class Pipeline:
     # ── Loop-Enabled Search Pipeline ─────────────────────────────────
 
     def retrieve_loop(
-        self, question: str,
-        file_id: int | None = None, namespace: str | None = None,
-        max_loops: int = 4, verifier_model: str | None = None,
+        self,
+        question: str,
+        file_id: int | None = None,
+        namespace: str | None = None,
+        max_loops: int = 4,
+        verifier_model: str | None = None,
         top_k: int = 8,
         verifier_gate: int | None = None,
     ) -> tuple[list[dict], dict]:
@@ -828,6 +992,7 @@ class Pipeline:
         collected evidence themselves.
         """
         import time as _time
+
         _t_start = _time.monotonic()
         max_loops = min(max_loops, MAX_LOOPS_CAP)
 
@@ -844,8 +1009,11 @@ class Pipeline:
                 return 0
             tried_terms.add(key)
             results = search_chunks(
-                self._storage, query=term, file_id=file_id,
-                namespace=namespace, top_k=top_k,
+                self._storage,
+                query=term,
+                file_id=file_id,
+                namespace=namespace,
+                top_k=top_k,
                 threshold=self._search_threshold,
                 vector_index=self._vector_index,
             )
@@ -859,13 +1027,15 @@ class Pipeline:
                 chunk = self._storage.get_chunk(fid, ci)
                 if not chunk:
                     continue
-                collected.append({
-                    "file_id": fid,
-                    "chunk_index": ci,
-                    "text": chunk["text"],
-                    "score": r.get("score", 0.0),
-                    "source": r.get("source", ""),
-                })
+                collected.append(
+                    {
+                        "file_id": fid,
+                        "chunk_index": ci,
+                        "text": chunk["text"],
+                        "score": r.get("score", 0.0),
+                        "source": r.get("source", ""),
+                    }
+                )
                 added += 1
             return added
 
@@ -910,9 +1080,7 @@ class Pipeline:
             # old "last 12 × 900 chars" prompt cost ~2.7k tokens per call
             # for a yes/no JSON and often showed the weakest chunks.
             excerpts = []
-            for c in sorted(current_chunks,
-                            key=lambda x: x.get("score", 0.0),
-                            reverse=True)[:6]:
+            for c in sorted(current_chunks, key=lambda x: x.get("score", 0.0), reverse=True)[:6]:
                 text = c["text"]
                 if len(text) > 500:
                     text = text[:500] + "…"
@@ -921,9 +1089,7 @@ class Pipeline:
                 "You are verifying whether a set of document excerpts is "
                 "sufficient to answer a question.\n\n"
                 f"Question: {question}\n\n"
-                "Excerpts so far:\n"
-                + ("\n\n".join(excerpts) if excerpts else "(none)")
-                + "\n\n"
+                "Excerpts so far:\n" + ("\n\n".join(excerpts) if excerpts else "(none)") + "\n\n"
                 "Can the question be answered from these excerpts alone? "
                 "Mark sufficient=true if the excerpts contain enough detail "
                 "to answer confidently — names, values, and key specifics "
@@ -969,7 +1135,8 @@ class Pipeline:
             for _loop in range(max_loops):
                 loops += 1
                 next_terms = [
-                    str(t).strip() for t in verdict.get("next_terms", [])
+                    str(t).strip()
+                    for t in verdict.get("next_terms", [])
                     if str(t).strip().lower() not in tried_terms
                 ][:3]
                 if not next_terms:
@@ -1004,10 +1171,14 @@ class Pipeline:
         return collected, metrics
 
     def query_loop(
-        self, file_id: int, question: str,
+        self,
+        file_id: int,
+        question: str,
         llm_config: LLMConfig | None = None,
-        max_loops: int = 4, verifier_model: str | None = None,
-        top_k: int = 8, verifier_gate: int | None = None,
+        max_loops: int = 4,
+        verifier_model: str | None = None,
+        top_k: int = 8,
+        verifier_gate: int | None = None,
     ) -> tuple[str, list[dict], dict]:
         """Iterative retrieval loop with a cheap sufficiency verifier.
 
@@ -1052,6 +1223,7 @@ class Pipeline:
             (answer, citations, metrics).
         """
         import time as _time
+
         _t_start = _time.monotonic()
 
         info = self._storage.get_file(file_id) or {}
@@ -1060,8 +1232,11 @@ class Pipeline:
 
         # Retrieval loop (hard-capped at MAX_LOOPS_CAP inside)
         collected, loop_metrics = self.retrieve_loop(
-            question, file_id=file_id, max_loops=max_loops,
-            verifier_model=verifier_model, top_k=top_k,
+            question,
+            file_id=file_id,
+            max_loops=max_loops,
+            verifier_model=verifier_model,
+            top_k=top_k,
             verifier_gate=verifier_gate,
         )
         stop_reason = loop_metrics["stop_reason"]
@@ -1071,7 +1246,8 @@ class Pipeline:
         # ── No evidence at all → abstain ──────────────────────────────
         if not collected:
             return (
-                "No relevant content found in the document.", [],
+                "No relevant content found in the document.",
+                [],
                 {
                     "method": "loop",
                     "stop_reason": stop_reason,
@@ -1085,8 +1261,7 @@ class Pipeline:
 
         # ── Rerank collected chunks semantically (if > 3) ─────────────
         if len(collected) > 3:
-            reranked = semantic_rerank(
-                question, collected, top_k=len(collected))
+            reranked = semantic_rerank(question, collected, top_k=len(collected))
             if reranked:
                 collected = reranked
 
@@ -1100,9 +1275,7 @@ class Pipeline:
             pass  # learning is best-effort; never break the answer
 
         # ── Synthesise with the strong model (reasoning high) ─────────
-        chunks_text = [
-            f"[chunk {c['chunk_index']}]\n{c['text']}" for c in collected
-        ]
+        chunks_text = [f"[chunk {c['chunk_index']}]\n{c['text']}" for c in collected]
         synth_config = LLMConfig(
             api_key=config.api_key,
             model=config.model,
@@ -1131,13 +1304,15 @@ class Pipeline:
 
         citations = []
         for c in collected:
-            citations.append({
-                "file_id": c.get("file_id", file_id),
-                "namespace": info.get("namespace", "default"),
-                "chunk_index": c["chunk_index"],
-                "score": c.get("score", 0.0),
-                "preview": c["text"][:150],
-            })
+            citations.append(
+                {
+                    "file_id": c.get("file_id", file_id),
+                    "namespace": info.get("namespace", "default"),
+                    "chunk_index": c["chunk_index"],
+                    "score": c.get("score", 0.0),
+                    "preview": c["text"][:150],
+                }
+            )
 
         metrics = {
             "method": "loop",
@@ -1158,8 +1333,11 @@ class Pipeline:
     # ── TOC-First Query Pipeline ──────────────────────────────────────
 
     def query_toc_first(
-        self, file_id: int, question: str,
-        llm_config: LLMConfig | None = None, expand_terms: bool = True,
+        self,
+        file_id: int,
+        question: str,
+        llm_config: LLMConfig | None = None,
+        expand_terms: bool = True,
     ) -> tuple[str, list[dict]]:
         """TOC-first query: route → heading selection → targeted search → expansion → answer.
 
@@ -1184,6 +1362,7 @@ class Pipeline:
         # Auto-format TOC if not already stored
         if not toc:
             from rag_kit._processor import format_toc
+
             toc = format_toc(mappings)
             self._storage.set_toc(file_id, toc)
 
@@ -1196,10 +1375,7 @@ class Pipeline:
         # self-updates: every past question becomes a proper subheading
         # under the section that answered it, in heading form, with the
         # chunk range as its 'page number'.
-        toc_view = (
-            self._render_self_updating_toc(mappings, learned)
-            if learned else toc
-        )
+        toc_view = self._render_self_updating_toc(mappings, learned) if learned else toc
 
         selected = self._select_headings(question, toc_view, menu)
         if not selected:
@@ -1212,8 +1388,7 @@ class Pipeline:
         # searched in parallel. BRIGHT-style query expansion: reasoning
         # about the query before retrieval is exactly what lifts the
         # top reasoning-retrievers on the current leaderboards.
-        terms = (self._expand_terms(question, toc_view, menu)
-                 if expand_terms else [question])
+        terms = self._expand_terms(question, toc_view, menu) if expand_terms else [question]
         terms = [question] + [t for t in terms if t and t != question]
         terms = terms[:8]  # original question + up to 7 spawned terms
 
@@ -1225,22 +1400,30 @@ class Pipeline:
         # navigation AND rare-term/identifier queries.
         from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(
-                max_workers=min(16, 1 + 2 * len(terms))) as ex:
-            futures = [
-                ex.submit(
-                    self._targeted_search, file_id, question, selected,
-                    mappings)
-            ]
+        with ThreadPoolExecutor(max_workers=min(16, 1 + 2 * len(terms))) as ex:
+            futures = [ex.submit(self._targeted_search, file_id, question, selected, mappings)]
             for t in terms:
-                futures.append(ex.submit(
-                    search_chunks, self._storage, query=t, file_id=file_id,
-                    top_k=8, vector_index=self._vector_index,
-                ))
-                futures.append(ex.submit(
-                    search_chunks, self._storage, query=t, file_id=file_id,
-                    top_k=8, vector_index=self._vector_index, mode="lexical",
-                ))
+                futures.append(
+                    ex.submit(
+                        search_chunks,
+                        self._storage,
+                        query=t,
+                        file_id=file_id,
+                        top_k=8,
+                        vector_index=self._vector_index,
+                    )
+                )
+                futures.append(
+                    ex.submit(
+                        search_chunks,
+                        self._storage,
+                        query=t,
+                        file_id=file_id,
+                        top_k=8,
+                        vector_index=self._vector_index,
+                        mode="lexical",
+                    )
+                )
             results = [f.result() for f in futures]
         matched_chunks = self._merge_search_lists(*results)
 
@@ -1261,15 +1444,11 @@ class Pipeline:
             pass  # learning is best-effort; never break the answer
 
         # Step 4: LLM synthesis
-        answer, citations = self._synthesize(
-            question, expanded, mappings, info, config
-        )
+        answer, citations = self._synthesize(question, expanded, mappings, info, config)
 
         return answer, citations
 
-    def _record_chunk_learnings(
-        self, file_id: int, chunks: list[dict]
-    ) -> int:
+    def _record_chunk_learnings(self, file_id: int, chunks: list[dict]) -> int:
         """Teach the TOC from chunks the AI actually PROCESSED.
 
         Every chunk examined during a search contributes a heading-like
@@ -1306,8 +1485,7 @@ class Pipeline:
                 continue
             seen_idx.add(ci)
             text = c.get("text", "")
-            if (not text or text.startswith("…")
-                    or len(text.split()) < 8):
+            if not text or text.startswith("…") or len(text.split()) < 8:
                 chunk = self._storage.get_chunk(file_id, ci)
                 text = chunk["text"] if chunk else text
             if text:
@@ -1332,9 +1510,7 @@ class Pipeline:
             if not heading or heading in seen_headings:
                 continue
             seen_headings.add(heading)
-            if self._storage.learned_toc_add(
-                file_id, heading, ci, ci, source="chunk"
-            ):
+            if self._storage.learned_toc_add(file_id, heading, ci, ci, source="chunk"):
                 new += 1
         return new
 
@@ -1364,9 +1540,7 @@ class Pipeline:
             '{"headings": [{"chunk_index": 0, "heading": "..."}, '
             '{"chunk_index": 1, "heading": "..."}]}'
         )
-        res = json_completion(
-            [{"role": "user", "content": prompt}]
-        )
+        res = json_completion([{"role": "user", "content": prompt}])
         out: dict[int, str] = {}
         for h in res.get("headings", []):
             try:
@@ -1408,22 +1582,25 @@ class Pipeline:
             path = q["question"]
             if parent:
                 path = f"{parent['hierarchical_path']} → {path}"
-            entries.append({
-                "hierarchical_path": f"[learned] {path}",
-                "title": q["question"],
-                "heading": self._question_to_heading(q["question"]),
-                "_parent_title": parent["title"] if parent else None,
-                "chunk_start": q["chunk_start"],
-                "chunk_end": q["chunk_end"],
-                "level": (parent["level"] + 1) if parent else 3,
-                "learned": True,
-                "hits": q["hits"],
-                "source": "question",
-            })
+            entries.append(
+                {
+                    "hierarchical_path": f"[learned] {path}",
+                    "title": q["question"],
+                    "heading": self._question_to_heading(q["question"]),
+                    "_parent_title": parent["title"] if parent else None,
+                    "chunk_start": q["chunk_start"],
+                    "chunk_end": q["chunk_end"],
+                    "level": (parent["level"] + 1) if parent else 3,
+                    "learned": True,
+                    "hits": q["hits"],
+                    "source": "question",
+                }
+            )
         # ── Source 2: chunk-derived (new — the AI's examined chunks) ──
         chunk_entries = (
             self._storage.learned_toc_list(file_id, limit=limit)
-            if hasattr(self._storage, "learned_toc_list") else []
+            if hasattr(self._storage, "learned_toc_list")
+            else []
         )
         for ce in chunk_entries:
             parent = None
@@ -1435,18 +1612,20 @@ class Pipeline:
             path = heading
             if parent:
                 path = f"{parent['hierarchical_path']} → {heading}"
-            entries.append({
-                "hierarchical_path": f"[chunk] {path}",
-                "title": heading,
-                "heading": heading,
-                "_parent_title": parent["title"] if parent else None,
-                "chunk_start": ce["chunk_start"],
-                "chunk_end": ce["chunk_end"],
-                "level": (parent["level"] + 1) if parent else 3,
-                "learned": True,
-                "hits": ce["hits"],
-                "source": "chunk",
-            })
+            entries.append(
+                {
+                    "hierarchical_path": f"[chunk] {path}",
+                    "title": heading,
+                    "heading": heading,
+                    "_parent_title": parent["title"] if parent else None,
+                    "chunk_start": ce["chunk_start"],
+                    "chunk_end": ce["chunk_end"],
+                    "level": (parent["level"] + 1) if parent else 3,
+                    "learned": True,
+                    "hits": ce["hits"],
+                    "source": "chunk",
+                }
+            )
         return entries
 
     @staticmethod
@@ -1460,11 +1639,23 @@ class Pipeline:
         """
         s = q.strip().rstrip("?.")
         lowered = s.lower()
-        for p in ("what is ", "what are ", "how do i ", "how do you ",
-                  "how to ", "can i ", "can we ", "which ", "when ",
-                  "where ", "why ", "is there ", "are there "):
+        for p in (
+            "what is ",
+            "what are ",
+            "how do i ",
+            "how do you ",
+            "how to ",
+            "can i ",
+            "can we ",
+            "which ",
+            "when ",
+            "where ",
+            "why ",
+            "is there ",
+            "are there ",
+        ):
             if lowered.startswith(p):
-                s = s[len(p):].strip()
+                s = s[len(p) :].strip()
                 break
         if not s:
             s = q.strip().rstrip("?.")
@@ -1493,13 +1684,10 @@ class Pipeline:
             for k in kids.get(m["title"], []):
                 kid_indent = "  " * (k["level"] - 1)
                 lines.append(
-                    f"{kid_indent}{k['heading']}  "
-                    f"(chunks {k['chunk_start']}-{k['chunk_end']})"
+                    f"{kid_indent}{k['heading']}  (chunks {k['chunk_start']}-{k['chunk_end']})"
                 )
         for k in kids.get(None, []):
-            lines.append(
-                f"  {k['heading']}  (chunks {k['chunk_start']}-{k['chunk_end']})"
-            )
+            lines.append(f"  {k['heading']}  (chunks {k['chunk_start']}-{k['chunk_end']})")
         return "\n".join(lines)
 
     @staticmethod
@@ -1529,21 +1717,23 @@ class Pipeline:
         Uses a cheap LLM router model. Falls back to regex if LLM unavailable.
         """
         try:
-            result = router_completion([
-                {
-                    "role": "system",
-                    "content": (
-                        "Classify the user's question as TECHNICAL or GENERAL.\n\n"
-                        "TECHNICAL: Asking how to do something specific, configure equipment, "
-                        "understand a parameter, follow a procedure, or referencing specific "
-                        "sections/chapters/manuals/equipment.\n\n"
-                        "GENERAL: Simple factual questions, summaries, general knowledge, "
-                        "or questions that don't reference specific technical content.\n\n"
-                        "Respond with exactly one word: TECHNICAL or GENERAL."
-                    ),
-                },
-                {"role": "user", "content": question},
-            ])
+            result = router_completion(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Classify the user's question as TECHNICAL or GENERAL.\n\n"
+                            "TECHNICAL: Asking how to do something specific, configure equipment, "
+                            "understand a parameter, follow a procedure, or referencing specific "
+                            "sections/chapters/manuals/equipment.\n\n"
+                            "GENERAL: Simple factual questions, summaries, general knowledge, "
+                            "or questions that don't reference specific technical content.\n\n"
+                            "Respond with exactly one word: TECHNICAL or GENERAL."
+                        ),
+                    },
+                    {"role": "user", "content": question},
+                ]
+            )
             result = result.strip().upper()
             if "TECHNICAL" in result:
                 return "TECHNICAL"
@@ -1563,9 +1753,7 @@ class Pipeline:
                 return "TECHNICAL"
         return "GENERAL"
 
-    def _select_headings(
-        self, question: str, toc: str, mappings: list[dict]
-    ) -> list[dict]:
+    def _select_headings(self, question: str, toc: str, mappings: list[dict]) -> list[dict]:
         """Ask LLM to select relevant headings from the TOC.
 
         Returns filtered list of mapping entries (max 10).
@@ -1573,10 +1761,7 @@ class Pipeline:
         # Build heading list — just titles, no chunk ranges (LLM doesn't need them)
         # Truncate at 200 headings to keep prompt manageable
         max_headings = 200
-        heading_lines = [
-            f"  {m['hierarchical_path']}"
-            for m in mappings[:max_headings]
-        ]
+        heading_lines = [f"  {m['hierarchical_path']}" for m in mappings[:max_headings]]
         if len(mappings) > max_headings:
             heading_lines.append(f"  ... and {len(mappings) - max_headings} more sections")
 
@@ -1593,16 +1778,18 @@ class Pipeline:
             "- Which sections would contain information about the topic?\n"
             "- Include parent sections for context (warnings, intro material).\n"
             "- If the question references another section ('see section X'), include that too.\n\n"
-            'Output ONLY valid JSON.\n'
+            "Output ONLY valid JSON.\n"
             '{"selected_headings": ["hierarchical_path_1", "hierarchical_path_2"]}\n'
-            'Return an empty array if no headings are relevant. '
-            'Select at most 10 headings.'
+            "Return an empty array if no headings are relevant. "
+            "Select at most 10 headings."
         )
 
         try:
-            result = json_completion([
-                {"role": "user", "content": prompt},
-            ])
+            result = json_completion(
+                [
+                    {"role": "user", "content": prompt},
+                ]
+            )
             selected_paths = result.get("selected_headings", [])
         except Exception:
             return []
@@ -1620,9 +1807,7 @@ class Pipeline:
 
         return selected
 
-    def _expand_terms(
-        self, question: str, toc: str, mappings: list[dict]
-    ) -> list[str]:
+    def _expand_terms(self, question: str, toc: str, mappings: list[dict]) -> list[str]:
         """Spawn 3-7 search terms from the question + TOC context.
 
         Query expansion after reading the TOC: synonyms, keywords,
@@ -1632,8 +1817,7 @@ class Pipeline:
         benchmarks. Returns up to 7 terms; falls back to [question] if
         the LLM call fails.
         """
-        heading_lines = "\n".join(
-            f"  {m['hierarchical_path']}" for m in mappings[:200])
+        heading_lines = "\n".join(f"  {m['hierarchical_path']}" for m in mappings[:200])
         prompt = (
             "You are preparing search terms for a technical manual lookup.\n\n"
             f"TOC sections:\n{heading_lines}\n\n"
@@ -1671,8 +1855,10 @@ class Pipeline:
             chunk_ranges.append((sel["chunk_start"], sel["chunk_end"]))
             # Also include parent sections
             for m in all_mappings:
-                if (m["level"] < sel["level"]
-                        and m["chunk_start"] <= sel["chunk_start"] <= m["chunk_end"]):
+                if (
+                    m["level"] < sel["level"]
+                    and m["chunk_start"] <= sel["chunk_start"] <= m["chunk_end"]
+                ):
                     chunk_ranges.append((m["chunk_start"], m["chunk_end"]))
 
         # Merge overlapping ranges
@@ -1807,13 +1993,15 @@ class Pipeline:
         citations = []
         for chunk in expanded_chunks:
             ci = chunk.get("index", 0)
-            citations.append({
-                "file_id": file_info.get("file_id", 0),
-                "namespace": file_info.get("namespace", "default"),
-                "chunk_index": ci,
-                "score": 1.0,
-                "sections": chunk.get("sections", []),
-                "matched": bool(chunk.get("matched", False)),
-            })
+            citations.append(
+                {
+                    "file_id": file_info.get("file_id", 0),
+                    "namespace": file_info.get("namespace", "default"),
+                    "chunk_index": ci,
+                    "score": 1.0,
+                    "sections": chunk.get("sections", []),
+                    "matched": bool(chunk.get("matched", False)),
+                }
+            )
 
         return answer, citations

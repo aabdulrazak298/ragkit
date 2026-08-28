@@ -14,12 +14,12 @@ Example:
     print(result.answer)
 """
 
-from rag_kit._rag import RAGSystem, LLMConfig, QueryResult
-from rag_kit._metrics import QueryMetrics, record, get_all, get_last, stats
-from rag_kit._vector_index import VectorIndex
-from rag_kit._local_embed import hybrid_score, abstain_gate, is_model_available
 from rag_kit._durable_index import DurableIndex
+from rag_kit._local_embed import abstain_gate, hybrid_score, is_model_available
+from rag_kit._metrics import QueryMetrics, get_all, get_last, record, stats
+from rag_kit._rag import LLMConfig, QueryResult, RAGSystem
 from rag_kit._trimming import trim_chunks
+from rag_kit._vector_index import VectorIndex
 
 __all__ = [
     "RAGSystem",

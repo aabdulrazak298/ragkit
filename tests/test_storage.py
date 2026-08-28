@@ -20,14 +20,20 @@ def tmp_db():
 def _create_test_file(storage, chunks=None, namespace="default"):
     if chunks is None:
         chunks = [
-            {"text": "chunk 0 text about safety procedures",
-             "keywords": "safety, procedures",
-             "keywords_list": ["safety", "procedures"],
-             "preview": "safety procedures", "offset": 0},
-            {"text": "chunk 1 text about maintenance",
-             "keywords": "maintenance",
-             "keywords_list": ["maintenance"],
-             "preview": "maintenance", "offset": 50},
+            {
+                "text": "chunk 0 text about safety procedures",
+                "keywords": "safety, procedures",
+                "keywords_list": ["safety", "procedures"],
+                "preview": "safety procedures",
+                "offset": 0,
+            },
+            {
+                "text": "chunk 1 text about maintenance",
+                "keywords": "maintenance",
+                "keywords_list": ["maintenance"],
+                "preview": "maintenance",
+                "offset": 50,
+            },
         ]
     return storage.create_file(
         url="https://example.com/doc.txt",
@@ -85,7 +91,7 @@ def test_fts5_search(tmp_db):
 
 def test_fts5_search_namespace(tmp_db):
     storage = Storage(tmp_db)
-    fid_a = _create_test_file(storage, namespace="project-a")
+    _create_test_file(storage, namespace="project-a")
     _create_test_file(storage, namespace="project-b")
 
     # Search within project-a

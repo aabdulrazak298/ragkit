@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from rag_kit._search import search, _fuzzy_scan
+from rag_kit._search import _fuzzy_scan, search
 
 
 def test_search_mode_lexical_skips_vector(tmp_db):
@@ -14,8 +14,7 @@ def test_search_mode_lexical_skips_vector(tmp_db):
     storage = _make_storage(tmp_db)
     with pytest.raises(ValueError):
         search(storage, "safety", file_id=1, mode="bogus")
-    results = search(storage, "safety procedures", file_id=1, top_k=5,
-                     mode="lexical")
+    results = search(storage, "safety procedures", file_id=1, top_k=5, mode="lexical")
     assert results, "lexical mode should return matches"
     assert results[0]["file_id"] == 1
     assert all(r["source"] in ("fts5", "fuzzy") for r in results)
@@ -27,7 +26,6 @@ def test_search_mode_auto_falls_back_without_vectors(tmp_db):
     storage = _make_storage(tmp_db)
     results = search(storage, "safety procedures", file_id=1, top_k=5)
     assert results
-
 
 
 @pytest.fixture
@@ -44,14 +42,20 @@ def _make_storage(db_path):
 
     storage = Storage(db_path)
     chunks = [
-        {"text": "chunk 0 text about safety procedures and lockout tagout",
-         "keywords": "safety, procedures",
-         "keywords_list": ["safety", "procedures"],
-         "preview": "safety procedures", "offset": 0},
-        {"text": "chunk 1 text about maintenance scheduling for pumps",
-         "keywords": "maintenance",
-         "keywords_list": ["maintenance"],
-         "preview": "maintenance", "offset": 50},
+        {
+            "text": "chunk 0 text about safety procedures and lockout tagout",
+            "keywords": "safety, procedures",
+            "keywords_list": ["safety", "procedures"],
+            "preview": "safety procedures",
+            "offset": 0,
+        },
+        {
+            "text": "chunk 1 text about maintenance scheduling for pumps",
+            "keywords": "maintenance",
+            "keywords_list": ["maintenance"],
+            "preview": "maintenance",
+            "offset": 50,
+        },
     ]
     storage.create_file(
         url="https://example.com/doc.txt",
@@ -99,9 +103,15 @@ def test_search_filters_by_file(tmp_db):
         chunk_size=100,
         overlap=20,
         total_chunks=1,
-        chunks=[{"text": "safety procedures in file two",
-                 "keywords": "safety", "keywords_list": ["safety"],
-                 "preview": "safety", "offset": 0}],
+        chunks=[
+            {
+                "text": "safety procedures in file two",
+                "keywords": "safety",
+                "keywords_list": ["safety"],
+                "preview": "safety",
+                "offset": 0,
+            }
+        ],
         namespace="other",
     )
     # Query restricted to file 1 must not return file 2 chunks
@@ -111,8 +121,9 @@ def test_search_filters_by_file(tmp_db):
 
 def test_fuzzy_scan_direct(tmp_db):
     storage = _make_storage(tmp_db)
-    matches = _fuzzy_scan(storage, "maintenance scheduling", file_id=1,
-                          namespace=None, threshold=0.3)
+    matches = _fuzzy_scan(
+        storage, "maintenance scheduling", file_id=1, namespace=None, threshold=0.3
+    )
     assert len(matches) > 0
     # Sorted by score descending
     scores = [m["score"] for m in matches]
@@ -124,6 +135,5 @@ def test_fuzzy_scan_direct(tmp_db):
 def test_fuzzy_scan_content_gate(tmp_db):
     """Off-topic query with no content-term overlap must be filtered out."""
     storage = _make_storage(tmp_db)
-    matches = _fuzzy_scan(storage, "zzzzzzzzzz", file_id=1,
-                          namespace=None, threshold=0.0)
+    matches = _fuzzy_scan(storage, "zzzzzzzzzz", file_id=1, namespace=None, threshold=0.0)
     assert matches == []

@@ -9,7 +9,6 @@ Architecture:
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
 
@@ -17,7 +16,8 @@ import numpy as np
 import turbovec as tv
 
 from rag_kit._llm import _get_client
-from rag_kit._local_embed import embed_texts as _local_embed_texts, is_model_available
+from rag_kit._local_embed import embed_texts as _local_embed_texts
+from rag_kit._local_embed import is_model_available
 
 EMBEDDING_URL = "https://openrouter.ai/api/v1/embeddings"
 DEFAULT_EMBED_MODEL = "qwen/qwen3-embedding-8b"
@@ -63,7 +63,9 @@ class VectorIndex:
         index_dir: str | None = None,
         embed_backend: str = "api",
     ):
-        self._api_key = api_key or os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
+        self._api_key = (
+            api_key or os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENAI_API_KEY", "")
+        )
         self._embed_model = embed_model
         self._embed_backend = embed_backend
         self._dim = 384 if embed_backend == "local" else dim
@@ -191,9 +193,7 @@ class VectorIndex:
             if len(present) == 0:
                 return []
             effective_k = min(k, len(present))
-            scores, ids = self._index.search(
-                query_vec, k=effective_k, allowlist=present
-            )
+            scores, ids = self._index.search(query_vec, k=effective_k, allowlist=present)
         else:
             effective_k = min(k, len(self._index))
             scores, ids = self._index.search(query_vec, k=effective_k)
@@ -201,11 +201,13 @@ class VectorIndex:
         results = []
         for score, eid in zip(scores[0], ids[0]):
             file_id, chunk_index = unpack_id(eid)
-            results.append({
-                "file_id": file_id,
-                "chunk_index": chunk_index,
-                "score": float(score),
-            })
+            results.append(
+                {
+                    "file_id": file_id,
+                    "chunk_index": chunk_index,
+                    "score": float(score),
+                }
+            )
         return results
 
     # ── Persistence ────────────────────────────────────────────────────

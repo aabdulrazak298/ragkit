@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -19,8 +19,7 @@ ROUTER_MODEL = "google/gemini-2.5-flash-lite"  # Fast, cheap, good enough for cl
 # on the same host set it to their own proxies, which silently broke routing
 # (empty content -> JSON parse fail -> silent fallback). A dedicated override
 # is available if the router endpoint ever needs to move.
-ROUTER_BASE_URL = os.environ.get(
-    "RAGKIT_ROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+ROUTER_BASE_URL = os.environ.get("RAGKIT_ROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 # Shared HTTP clients — connection reuse instead of a fresh TCP+TLS
 # handshake per call (~0.5-1s saved per query against remote APIs).
@@ -65,9 +64,9 @@ class LLMConfig:
     def __post_init__(self):
         # Auto-detect provider from model prefix (always, not just when api_key is None)
         if self.model.startswith("deepseek/"):
-            self.base_url = os.environ.get(
-                "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
-            ).rstrip("/") + "/v1"
+            self.base_url = (
+                os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/") + "/v1"
+            )
             self.model = self._map_deepseek_model(self.model)
 
         if self.api_key is None:
@@ -83,7 +82,7 @@ class LLMConfig:
     @staticmethod
     def _map_deepseek_model(model: str) -> str:
         """Strip OpenRouter 'deepseek/' prefix for DeepSeek direct API.
-        
+
         OpenRouter:  deepseek/deepseek-v4-flash
         DeepSeek:    deepseek-v4-flash
         """
@@ -107,8 +106,6 @@ def chat_completion(
     """
     if not config.api_key:
         return _mock_answer(messages)
-
-    import httpx
 
     # Build extra params for thinking/reasoning
     extra: dict[str, Any] = {}
@@ -207,7 +204,6 @@ def agentic_chat(
     if not config.api_key:
         return _mock_answer(messages), []
 
-    import httpx
     import json
     import time
 
@@ -222,7 +218,7 @@ def agentic_chat(
 
         remaining = max(5, int(deadline - time.monotonic()))
         per_request_timeout = min(timeout, remaining)
-        
+
         # Build extra params (thinking/reasoning)
         extra: dict[str, Any] = {}
         if not config.thinking_enabled:
@@ -247,9 +243,7 @@ def agentic_chat(
             timeout=per_request_timeout,
         )
         if resp.status_code >= 400:
-            raise RuntimeError(
-                f"API error {resp.status_code}: {resp.text[:800]}"
-            )
+            raise RuntimeError(f"API error {resp.status_code}: {resp.text[:800]}")
         data = resp.json()
         choice = data["choices"][0]
         msg = choice["message"]
@@ -272,25 +266,29 @@ def agentic_chat(
                 except Exception as e:
                     result = f"Error: {e}"
 
-                trace.append({
-                    "tool_call_id": tc["id"],
-                    "tool_name": fn_name,
-                    "arguments": fn_args,
-                    "result": result[:2000] if len(result) > 2000 else result,
-                })
+                trace.append(
+                    {
+                        "tool_call_id": tc["id"],
+                        "tool_name": fn_name,
+                        "arguments": fn_args,
+                        "result": result[:2000] if len(result) > 2000 else result,
+                    }
+                )
 
-                current_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": result[:50000] if len(result) > 50000 else result,
-                })
+                current_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result[:50000] if len(result) > 50000 else result,
+                    }
+                )
 
             # ── Context window management ──────────────────────────
             # Rough estimate: 1 token ≈ 4 chars for English text
             # Keep system prompt + user question + last 3 turns, trim old tool results
-            MAX_EST_TOKENS = 80000  # Leave room for response
+            max_est_tokens = 80000  # Leave room for response
             total_chars = sum(len(m.get("content", "") or "") for m in current_messages)
-            if total_chars > MAX_EST_TOKENS * 4:
+            if total_chars > max_est_tokens * 4:
                 # Build a trimmed message list: system + user + last 3 exchanges
                 trimmed = []
                 # Keep system prompt (first message)
@@ -311,13 +309,15 @@ def agentic_chat(
                     if kept >= 3 and m["role"] == "assistant":
                         break
                 # Add a summary note in place of trimmed content
-                trimmed.append({
-                    "role": "system",
-                    "content": (
-                        f"[{len(current_messages) - 2} previous search turns trimmed for context budget. "
-                        f"The most recent {kept} turns are preserved below.]"
-                    )
-                })
+                trimmed.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"[{len(current_messages) - 2} previous search turns trimmed for context budget. "
+                            f"The most recent {kept} turns are preserved below.]"
+                        ),
+                    }
+                )
                 trimmed.extend(tail)
                 current_messages = trimmed
 
@@ -330,16 +330,18 @@ def agentic_chat(
     # so the LLM can report what it found (or say nothing relevant found)
     try:
         final_messages = list(current_messages)
-        final_messages.append({
-            "role": "user",
-            "content": (
-                "You have exhausted your search budget. "
-                "Summarize what you found and list the chunk references "
-                "that are most relevant to the original question. "
-                "If you found nothing useful, respond with exactly: "
-                "NO_RELEVANT_CONTENT_FOUND"
-            )
-        })
+        final_messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "You have exhausted your search budget. "
+                    "Summarize what you found and list the chunk references "
+                    "that are most relevant to the original question. "
+                    "If you found nothing useful, respond with exactly: "
+                    "NO_RELEVANT_CONTENT_FOUND"
+                ),
+            }
+        )
         resp = _get_client().post(
             f"{config.base_url}/chat/completions",
             headers={
@@ -376,8 +378,6 @@ def router_completion(
     if not api_key:
         return _mock_answer(messages)
 
-    import httpx
-
     resp = _get_client().post(
         f"{base_url}/chat/completions",
         headers={
@@ -413,8 +413,6 @@ def json_completion(
     if not api_key:
         return {}
 
-    import httpx
-
     resp = _get_client().post(
         f"{base_url}/chat/completions",
         headers={
@@ -438,6 +436,7 @@ def json_completion(
     except json.JSONDecodeError:
         # Try to extract JSON from markdown code block
         import re
+
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
         if match:
             return json.loads(match.group(1))

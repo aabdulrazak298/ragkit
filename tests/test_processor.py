@@ -1,9 +1,9 @@
 """Tests for rag-kit processor module."""
 
 from rag_kit._processor import (
-    chunk_text,
     chunk_by_chars,
     chunk_by_paragraphs,
+    chunk_text,
     extract_keywords,
     extract_preview,
     process_chunks,

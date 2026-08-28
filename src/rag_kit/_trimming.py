@@ -21,18 +21,16 @@ import re
 SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 # Configuration
-TRIM_MIN_CHUNK_WORDS = 60      # Chunks this short returned whole
-TRIM_MIN_KEEP_WORDS = 40       # Never trim below this many words
-TRIM_WINDOW = 3                # Best contiguous run of at most this many sentences
-TRIM_MAX_WINDOWS = 3           # Disjoint regions to keep (multi-fact questions)
-TRIM_SECOND_RATIO = 0.6        # Extra region must score >=60% of the best
+TRIM_MIN_CHUNK_WORDS = 60  # Chunks this short returned whole
+TRIM_MIN_KEEP_WORDS = 40  # Never trim below this many words
+TRIM_WINDOW = 3  # Best contiguous run of at most this many sentences
+TRIM_MAX_WINDOWS = 3  # Disjoint regions to keep (multi-fact questions)
+TRIM_SECOND_RATIO = 0.6  # Extra region must score >=60% of the best
 
 
 def _is_trim_enabled() -> bool:
     """Check if trimming is enabled via env var."""
-    return os.environ.get("TOKEN_SAVER_TRIM", "1").strip().lower() in (
-        "1", "true", "yes", "on"
-    )
+    return os.environ.get("TOKEN_SAVER_TRIM", "1").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _sentences(text: str) -> list[str]:
@@ -40,7 +38,7 @@ def _sentences(text: str) -> list[str]:
     parts = [s.strip() for s in SENT_SPLIT_RE.split(text) if s.strip()]
     if len(parts) < 2:
         words = text.split()
-        parts = [" ".join(words[i:i + 25]) for i in range(0, len(words), 25)]
+        parts = [" ".join(words[i : i + 25]) for i in range(0, len(words), 25)]
     return parts or [text]
 
 
@@ -89,7 +87,7 @@ def _best_window(
         for j in range(i, min(i + TRIM_WINDOW, len(sents))):
             if any(x in banned for x in range(i, j + 1)):
                 continue
-            score = sum(sent_scores[i:j + 1]) / (j - i + 1)
+            score = sum(sent_scores[i : j + 1]) / (j - i + 1)
             if best is None or score > best:
                 best, bi, bj = score, i, j
     return best, bi, bj
@@ -116,10 +114,7 @@ def _trim_chunk(text: str, query: str) -> str:
         return text
 
     # Extract query terms for scoring
-    query_terms = {
-        t.lower() for t in re.findall(r"[a-z0-9]+", query.lower())
-        if len(t) > 2
-    }
+    query_terms = {t.lower() for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) > 2}
     if not query_terms:
         return text
 
@@ -143,15 +138,11 @@ def _trim_chunk(text: str, query: str) -> str:
         banned |= set(range(i, j + 1))
 
     # Pad each region by ±1 sentence, then merge overlaps
-    merged = _coalesce([
-        [max(0, i - 1), min(len(sents) - 1, j + 1)]
-        for i, j in ranges
-    ])
+    merged = _coalesce([[max(0, i - 1), min(len(sents) - 1, j + 1)] for i, j in ranges])
 
     # Grow first region until minimum word floor is met
     while (
-        sum(len(s.split()) for lo, hi in merged for s in sents[lo:hi + 1])
-        < TRIM_MIN_KEEP_WORDS
+        sum(len(s.split()) for lo, hi in merged for s in sents[lo : hi + 1]) < TRIM_MIN_KEEP_WORDS
     ):
         lo, hi = merged[0]
         if lo > 0:
@@ -169,7 +160,7 @@ def _trim_chunk(text: str, query: str) -> str:
     for idx, (lo, hi) in enumerate(merged):
         if idx:
             out.append("…")
-        out.append(" ".join(sents[lo:hi + 1]))
+        out.append(" ".join(sents[lo : hi + 1]))
     if merged[-1][1] < len(sents) - 1:
         out.append("…")
 

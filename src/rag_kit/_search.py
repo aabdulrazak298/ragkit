@@ -13,7 +13,6 @@ from typing import Any
 from rapidfuzz import fuzz, utils
 
 from rag_kit._processor import extract_preview
-from rag_kit._vector_index import pack_id
 
 DEFAULT_THRESHOLD = 0.3
 
@@ -76,15 +75,10 @@ def search(
         threshold = DEFAULT_THRESHOLD
 
     if mode not in ("auto", "hybrid", "lexical", "vector"):
-        raise ValueError(
-            f"mode must be auto/hybrid/lexical/vector, got {mode!r}")
+        raise ValueError(f"mode must be auto/hybrid/lexical/vector, got {mode!r}")
 
     # Check if vector index is available and populated
-    use_vectors = (
-        vector_index is not None
-        and vector_index.enabled
-        and vector_index.size > 0
-    )
+    use_vectors = vector_index is not None and vector_index.enabled and vector_index.size > 0
 
     # FTS5 supplement — always run for exact-match boost
     fts5_results = storage.fts5_search(
@@ -102,14 +96,18 @@ def search(
         # Lexicon/term lookup: skip vectors entirely — exact keywords and
         # fuzzy token matches only. Wins on identifiers, tags, part numbers,
         # code symbols (see BRIGHT: rare/identifier terms defeat dense).
-        return _search_fallback(
-            storage, query, fts5_results, file_id, namespace, threshold,
-            top_k)
+        return _search_fallback(storage, query, fts5_results, file_id, namespace, threshold, top_k)
 
     if use_vectors and mode != "lexical":
         return _search_hybrid(
-            storage, query, fts5_results, vector_index, top_k,
-            file_id=file_id, namespace=namespace, threshold=threshold,
+            storage,
+            query,
+            fts5_results,
+            vector_index,
+            top_k,
+            file_id=file_id,
+            namespace=namespace,
+            threshold=threshold,
             use_fuzzy=use_fuzzy,
         )
     else:
@@ -150,8 +148,7 @@ def _search_hybrid(
     # tokenization misses (e.g. "executescript" vs "executes a script").
     fuzzy_results: list[dict] = []
     if use_fuzzy:
-        fuzzy_results = _fuzzy_scan(
-            storage, query, file_id, namespace, threshold)
+        fuzzy_results = _fuzzy_scan(storage, query, file_id, namespace, threshold)
         for r in fuzzy_results:
             r["source"] = "fuzzy"
 
@@ -237,24 +234,114 @@ def _fuzzy_scan(
     import re
 
     # Extract content terms from query (non-stopwords, >2 chars)
-    STOP_FUZZY = {
-        "a", "an", "the", "is", "are", "was", "were", "be", "been",
-        "and", "or", "but", "in", "on", "at", "to", "for", "of",
-        "by", "with", "from", "what", "when", "where", "how", "why",
-        "who", "which", "this", "that", "these", "those", "it", "its",
-        "do", "does", "did", "will", "would", "can", "could", "may",
-        "might", "shall", "should", "has", "have", "had", "not", "no",
-        "if", "about", "into", "than", "then", "also", "very", "just",
-        "each", "all", "any", "both", "some", "such", "only", "need",
-        "needed", "before", "after", "during", "other", "more", "most",
-        "like", "make", "made", "use", "used", "using", "way", "ways",
-        "without", "within", "much", "many", "even", "well", "back",
-        "here", "there", "over", "under", "still", "yet", "already",
-        "does", "did", "done", "doing", "get", "got", "gets",
+    stop_fuzzy = {
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "by",
+        "with",
+        "from",
+        "what",
+        "when",
+        "where",
+        "how",
+        "why",
+        "who",
+        "which",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "can",
+        "could",
+        "may",
+        "might",
+        "shall",
+        "should",
+        "has",
+        "have",
+        "had",
+        "not",
+        "no",
+        "if",
+        "about",
+        "into",
+        "than",
+        "then",
+        "also",
+        "very",
+        "just",
+        "each",
+        "all",
+        "any",
+        "both",
+        "some",
+        "such",
+        "only",
+        "need",
+        "needed",
+        "before",
+        "after",
+        "during",
+        "other",
+        "more",
+        "most",
+        "like",
+        "make",
+        "made",
+        "use",
+        "used",
+        "using",
+        "way",
+        "ways",
+        "without",
+        "within",
+        "much",
+        "many",
+        "even",
+        "well",
+        "back",
+        "here",
+        "there",
+        "over",
+        "under",
+        "still",
+        "yet",
+        "already",
+        "does",
+        "did",
+        "done",
+        "doing",
+        "get",
+        "got",
+        "gets",
     }
     query_terms = {
-        t.lower() for t in re.findall(r"[a-z0-9]+", query.lower())
-        if len(t) > 2 and t not in STOP_FUZZY
+        t.lower()
+        for t in re.findall(r"[a-z0-9]+", query.lower())
+        if len(t) > 2 and t not in stop_fuzzy
     }
 
     # Build chunk list
@@ -284,12 +371,8 @@ def _fuzzy_scan(
 
         # Use token_sort_ratio for word-order independence,
         # fall back to partial_ratio for substring matches
-        pr = fuzz.partial_ratio(
-            query, chunk_text, processor=utils.default_process
-        )
-        ts = fuzz.token_sort_ratio(
-            query, chunk_text, processor=utils.default_process
-        )
+        pr = fuzz.partial_ratio(query, chunk_text, processor=utils.default_process)
+        ts = fuzz.token_sort_ratio(query, chunk_text, processor=utils.default_process)
         score = max(pr, ts)
 
         if score >= threshold_score:

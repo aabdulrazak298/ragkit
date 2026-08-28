@@ -18,12 +18,12 @@ def _get_reranker():
     global _RERANKER
     if _RERANKER is None:
         try:
-            from flashrank import Ranker, RerankRequest
+            from flashrank import Ranker
+
             _RERANKER = Ranker(model_name=_RERANKER_MODEL)
         except Exception as e:
             raise ImportError(
-                f"FlashRank reranker unavailable: {e}. "
-                "Install with: pip install flashrank"
+                f"FlashRank reranker unavailable: {e}. Install with: pip install flashrank"
             )
     return _RERANKER
 
@@ -55,11 +55,13 @@ def rerank(
         for i, r in enumerate(results):
             text = r.get("text", r.get("preview", ""))
             if text:
-                passages.append({
-                    "id": i,
-                    "text": text[:512],  # Truncate to model's max length
-                    "meta": {"original_index": i},
-                })
+                passages.append(
+                    {
+                        "id": i,
+                        "text": text[:512],  # Truncate to model's max length
+                        "meta": {"original_index": i},
+                    }
+                )
 
         if not passages:
             return results
@@ -97,6 +99,7 @@ def rerank(
     except Exception as e:
         # If reranking fails for any reason, gracefully fall back to original
         import logging
+
         logging.getLogger(__name__).warning(
             f"Reranking failed, falling back to original ordering: {e}"
         )

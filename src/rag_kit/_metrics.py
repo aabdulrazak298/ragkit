@@ -6,11 +6,8 @@ that gets appended to the QueryResult for external analysis.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 logger = logging.getLogger("rag_kit.metrics")
@@ -61,11 +58,13 @@ class QueryMetrics:
             f"{self.total_latency:.1f}s",
         ]
         if self.method == "agentic":
-            parts.extend([
-                f"turns={self.executor_turns}",
-                f"searches={self.executor_searches}",
-                f"chunks={self.executor_chunks_found}",
-            ])
+            parts.extend(
+                [
+                    f"turns={self.executor_turns}",
+                    f"searches={self.executor_searches}",
+                    f"chunks={self.executor_chunks_found}",
+                ]
+            )
             if self.executor_dedup_hits:
                 parts.append(f"dedup={self.executor_dedup_hits}")
             if self.executor_escalations:

@@ -17,7 +17,6 @@ Env vars:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -35,11 +34,10 @@ from rag_kit._local_embed import (
     minmax_normalize,
 )
 
-CACHE_DIR = Path(
-    os.environ.get("TOKEN_SAVER_CACHE", os.path.expanduser("~/.rag-kit/vec_index"))
-)
+CACHE_DIR = Path(os.environ.get("TOKEN_SAVER_CACHE", os.path.expanduser("~/.rag-kit/vec_index")))
 TTL_SECONDS = float(os.environ.get("TOKEN_SAVER_INDEX_TTL_DAYS", "14")) * 86400
 SCHEMA_VERSION = 1
+
 
 # FTS5 prefix matching for stemmed terms
 def _fts_term(t: str) -> str:
@@ -185,9 +183,7 @@ class DurableIndex:
         db = sqlite3.connect(str(dbp))
 
         # Load all chunks + vectors
-        rows = db.execute(
-            "SELECT id, chunk_index, text, vec FROM chunks ORDER BY id"
-        ).fetchall()
+        rows = db.execute("SELECT id, chunk_index, text, vec FROM chunks ORDER BY id").fetchall()
         if not rows:
             db.close()
             return []
@@ -197,9 +193,7 @@ class DurableIndex:
         texts = [r[2] for r in rows]
 
         # Reconstruct vector matrix
-        mat = np.frombuffer(
-            b"".join(r[3] for r in rows), dtype=np.float32
-        ).reshape(len(rows), DIM)
+        mat = np.frombuffer(b"".join(r[3] for r in rows), dtype=np.float32).reshape(len(rows), DIM)
         id_to_idx = {pid: i for i, pid in enumerate(ids)}
 
         # Semantic: embed query, cosine vs all (vectors pre-normalized)
@@ -214,8 +208,7 @@ class DurableIndex:
         match = _fts_match_string(query_terms)
         if match:
             for rid, score in db.execute(
-                "SELECT rowid, bm25(chunks_fts) "
-                "FROM chunks_fts WHERE chunks_fts MATCH ?",
+                "SELECT rowid, bm25(chunks_fts) FROM chunks_fts WHERE chunks_fts MATCH ?",
                 (match,),
             ):
                 kw[id_to_idx[rid]] = float(-score)
@@ -240,13 +233,15 @@ class DurableIndex:
         for i in order:
             if combined[i] <= 0 or len(results) >= top_k:
                 break
-            results.append({
-                "chunk_index": chunk_indices[i],
-                "text": texts[i],
-                "score": float(combined[i]),
-                "kw_score": float(minmax_normalize(kw)[i]),
-                "sem_score": float(minmax_normalize(sem)[i]),
-            })
+            results.append(
+                {
+                    "chunk_index": chunk_indices[i],
+                    "text": texts[i],
+                    "score": float(combined[i]),
+                    "kw_score": float(minmax_normalize(kw)[i]),
+                    "sem_score": float(minmax_normalize(sem)[i]),
+                }
+            )
 
         return results
 

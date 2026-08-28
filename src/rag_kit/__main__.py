@@ -1,7 +1,6 @@
 """CLI entry point for rag-kit."""
 
 import argparse
-import json
 import os
 import sys
 
@@ -38,10 +37,14 @@ def main():
     q_p.add_argument("question")
     q_p.add_argument("file_id", type=int, nargs="?", help="File ID (omit for cross-file)")
     q_p.add_argument("--namespace", "-n", help="Namespace (for cross-file query)")
-    q_p.add_argument("--loop", action="store_true",
-                     help="Loop-enabled search (iterative retrieval with verifier)")
-    q_p.add_argument("--max-loops", type=int, default=4,
-                     help="Max retrieval rounds for --loop (default 4)")
+    q_p.add_argument(
+        "--loop",
+        action="store_true",
+        help="Loop-enabled search (iterative retrieval with verifier)",
+    )
+    q_p.add_argument(
+        "--max-loops", type=int, default=4, help="Max retrieval rounds for --loop (default 4)"
+    )
 
     # search
     s_p = sub.add_parser("search", help="Keyword search")
@@ -89,8 +92,7 @@ def main():
             print("query --loop requires a file_id (loop mode is file-scoped).")
             sys.exit(2)
         if args.loop:
-            result = rag.query_loop(
-                args.file_id, args.question, max_loops=args.max_loops)
+            result = rag.query_loop(args.file_id, args.question, max_loops=args.max_loops)
         elif args.file_id:
             result = rag.query(args.file_id, args.question)
         elif args.namespace:
@@ -105,8 +107,10 @@ def main():
         if result.citations:
             print("\n--- Citations ---")
             for c in result.citations:
-                print(f"  File #{c['file_id']}, chunk {c['chunk_index']} "
-                      f"(score: {c.get('score', 0):.2f})")
+                print(
+                    f"  File #{c['file_id']}, chunk {c['chunk_index']} "
+                    f"(score: {c.get('score', 0):.2f})"
+                )
 
     elif args.command == "search":
         kwargs = {"query": args.query}
@@ -122,8 +126,7 @@ def main():
                 ci = r.get("chunk_index", r.get("index", "?"))
                 fid = r.get("file_id", "?")
                 ns = r.get("namespace", args.namespace or "?")
-                print(f"  File #{fid} ({ns}) chunk {ci} "
-                      f"(score: {r.get('score', 0):.2f})")
+                print(f"  File #{fid} ({ns}) chunk {ci} (score: {r.get('score', 0):.2f})")
                 print(f"  {r.get('preview', r.get('text', ''))[:200]}")
                 print()
 
@@ -132,9 +135,11 @@ def main():
         if not files:
             print("No files loaded.")
         for f in files:
-            print(f"  #{f['file_id']:>4}  {f['namespace']:15}  "
-                  f"{f['filename']:30}  ({f['total_chunks']} chunks, "
-                  f"{str(f['last_accessed'])[:19]})")
+            print(
+                f"  #{f['file_id']:>4}  {f['namespace']:15}  "
+                f"{f['filename']:30}  ({f['total_chunks']} chunks, "
+                f"{str(f['last_accessed'])[:19]})"
+            )
 
     elif args.command == "stats":
         st = rag.stats()

@@ -44,6 +44,7 @@ def _load_model():
 
     try:
         from sentence_transformers import SentenceTransformer
+
         _MODEL = SentenceTransformer(MODEL_NAME)
         return _MODEL
     except Exception:

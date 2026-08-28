@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 DEFAULT_CHUNK_SIZE = 1200
 DEFAULT_CHUNK_OVERLAP = 200
@@ -105,9 +104,7 @@ def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
     try:
         import yake
 
-        extractor = yake.KeywordExtractor(
-            lan="en", n=2, dedupLim=0.7, top=max_keywords
-        )
+        extractor = yake.KeywordExtractor(lan="en", n=2, dedupLim=0.7, top=max_keywords)
         return [kw for kw, _ in extractor.extract_keywords(text)]
     except ImportError:
         return []
@@ -153,6 +150,7 @@ def _extract_headings_from_text(text: str) -> list[dict]:
         level = 3  # default: deep subsection
         for pattern in HEADING_PATTERNS:
             import re
+
             if re.match(pattern, stripped):
                 matched = True
                 # Estimate level from numbering depth
@@ -174,11 +172,13 @@ def _extract_headings_from_text(text: str) -> list[dict]:
             # Clean up the title: remove trailing underscores/page nums, collapse tabs
             cleaned = _clean_heading_title(stripped)
             if cleaned:
-                headings.append({
-                    "title": cleaned,
-                    "level": level,
-                    "offset": offset,
-                })
+                headings.append(
+                    {
+                        "title": cleaned,
+                        "level": level,
+                        "offset": offset,
+                    }
+                )
 
     # RST underline style: a short title line followed by a line of
     # === (part/chapter), --- (section), ~~~ / ^^^ (subsection).
@@ -192,11 +192,13 @@ def _extract_headings_from_text(text: str) -> list[dict]:
             continue
         nxt = lines[i + 1].strip()
         if len(nxt) >= 3 and nxt and all(ch in "=-~^\"'" for ch in nxt):
-            headings.append({
-                "title": _clean_heading_title(stripped),
-                "level": rst_level.get(nxt[0], 3),
-                "offset": text.find(stripped),
-            })
+            headings.append(
+                {
+                    "title": _clean_heading_title(stripped),
+                    "level": rst_level.get(nxt[0], 3),
+                    "offset": text.find(stripped),
+                }
+            )
 
     # Deduplicate: same title within 100 chars offset = TOC/body dup
     # Keep the later occurrence (body text > TOC text).
@@ -311,14 +313,16 @@ def _build_section_mappings(
 
         parent_stack.append({"title": h["title"], "level": h["level"]})
 
-        mappings.append({
-            "hierarchical_path": hierarchical_path,
-            "title": h["title"],
-            "level": h["level"],
-            "offset": h["offset"],
-            "chunk_start": chunk_start,
-            "chunk_end": chunk_end,
-        })
+        mappings.append(
+            {
+                "hierarchical_path": hierarchical_path,
+                "title": h["title"],
+                "level": h["level"],
+                "offset": h["offset"],
+                "chunk_start": chunk_start,
+                "chunk_end": chunk_end,
+            }
+        )
 
     return mappings
 

@@ -1,7 +1,5 @@
 """Tests for the TOC-first pipeline's query-expansion step."""
 
-import pytest
-
 import rag_kit._pipeline as pipeline_mod
 from rag_kit._pipeline import Pipeline
 
@@ -16,12 +14,12 @@ def test_expand_terms_returns_3_7_terms(monkeypatch):
 
     def fake_json_completion(messages):
         calls["messages"] = messages
-        return {"terms": ["pressure switch", "io_0013_01", "vacuum sensor",
-                           "SMC ZSE20B", "ink line"]}
+        return {
+            "terms": ["pressure switch", "io_0013_01", "vacuum sensor", "SMC ZSE20B", "ink line"]
+        }
 
     monkeypatch.setattr(pipeline_mod, "json_completion", fake_json_completion)
-    terms = p._expand_terms("what senses the vacuum", "TOC\n",
-                            [{"hierarchical_path": "Sensors"}])
+    terms = p._expand_terms("what senses the vacuum", "TOC\n", [{"hierarchical_path": "Sensors"}])
     assert len(terms) == 5
     assert all(isinstance(t, str) and t for t in terms)
     assert "pressure switch" in terms

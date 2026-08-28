@@ -1,7 +1,5 @@
 """Tests for the loop-enabled search pipeline (query_loop)."""
 
-import pytest
-
 import rag_kit._pipeline as pipeline_mod
 from rag_kit._pipeline import Pipeline
 
@@ -35,10 +33,20 @@ def _make_pipeline(storage=None):
 
 def _fake_search(results_by_term):
     """Build a search_chunks fake keyed on exact query strings."""
-    def fake(storage=None, query=None, file_id=None, namespace=None,
-             top_k=20, threshold=None, vector_index=None, use_fuzzy=True,
-             mode="auto"):
+
+    def fake(
+        storage=None,
+        query=None,
+        file_id=None,
+        namespace=None,
+        top_k=20,
+        threshold=None,
+        vector_index=None,
+        use_fuzzy=True,
+        mode="auto",
+    ):
         return results_by_term.get(query, [])
+
     return fake
 
 
@@ -50,8 +58,9 @@ def test_loop_stops_when_verified_sufficient(monkeypatch):
     # question, then index 2 for any follow-up term.
     def fake_search(storage=None, query=None, **kw):
         idx = 1 if query == "what pressure?" else 2
-        return [{"chunk_index": idx, "score": 0.9, "source": "fts5",
-                 "text": f"chunk {idx} content"}]
+        return [
+            {"chunk_index": idx, "score": 0.9, "source": "fts5", "text": f"chunk {idx} content"}
+        ]
 
     def fake_json(messages, model=None):
         calls["verify"] += 1
@@ -102,8 +111,7 @@ def test_loop_stops_on_no_new_chunks(monkeypatch):
 
     # All searches return the same single chunk — second round adds nothing.
     def fake_search(storage=None, query=None, **kw):
-        return [{"chunk_index": 5, "score": 0.8, "source": "fts5",
-                 "text": "chunk 5 content"}]
+        return [{"chunk_index": 5, "score": 0.8, "source": "fts5", "text": "chunk 5 content"}]
 
     def fake_json(messages, model=None):
         return {"sufficient": False, "next_terms": ["alpha", "beta"]}
@@ -127,8 +135,7 @@ def test_loop_respects_max_loops(monkeypatch):
     call_n = {"n": 0}
 
     def fake_search(storage=None, query=None, **kw):
-        return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5",
-                 "text": "new content"}]
+        return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5", "text": "new content"}]
 
     def fake_json(messages, model=None):
         call_n["n"] += 1
@@ -150,8 +157,7 @@ def test_loop_dedupes_repeated_terms(monkeypatch):
 
     def fake_search(storage=None, query=None, **kw):
         searched.append(query)
-        return [{"chunk_index": 3, "score": 0.6, "source": "fts5",
-                 "text": "chunk 3 content"}]
+        return [{"chunk_index": 3, "score": 0.6, "source": "fts5", "text": "chunk 3 content"}]
 
     def fake_json(messages, model=None):
         # Verifier keeps suggesting the SAME term — dedup must stop it.
@@ -179,8 +185,7 @@ def test_loop_hard_cap_clamps_at_10(monkeypatch):
     call_n = {"n": 0}
 
     def fake_search(storage=None, query=None, **kw):
-        return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5",
-                 "text": "new content"}]
+        return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5", "text": "new content"}]
 
     def fake_json(messages, model=None):
         call_n["n"] += 1
@@ -200,8 +205,8 @@ def test_loop_hard_cap_clamps_at_10(monkeypatch):
     answer, citations, metrics = p.query_loop(1, "q", max_loops=100)
 
     assert metrics["stop_reason"] == "max_loops"
-    assert metrics["loops"] == 10          # clamped, not 100
-    assert metrics["chunks_found"] == 11   # initial + 1 per loop
+    assert metrics["loops"] == 10  # clamped, not 100
+    assert metrics["chunks_found"] == 11  # initial + 1 per loop
     assert metrics["verifier_calls"] == 11  # initial + one per loop
     assert answer == "Final answer after the cap."  # concludes, not abandons
     assert len(citations) == 11
@@ -215,8 +220,7 @@ def test_loop_cap_boundary_at_10_respects_lower_value(monkeypatch):
     call_n = {"n": 0}
 
     def fake_search(storage=None, query=None, **kw):
-        return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5",
-                 "text": "new content"}]
+        return [{"chunk_index": next(seq), "score": 0.7, "source": "fts5", "text": "new content"}]
 
     def fake_json(messages, model=None):
         call_n["n"] += 1
@@ -241,14 +245,19 @@ def test_loop_gate_skips_verifier_when_evidence_strong(monkeypatch):
 
     class _RichStorage(_FakeStorage):
         def get_chunk(self, file_id, index):
-            return {"text": f"The pressure sensor range is 150 psi. "
-                            f"(chunk {index})"}
+            return {"text": f"The pressure sensor range is 150 psi. (chunk {index})"}
 
     p = _make_pipeline(_RichStorage())
 
     def fake_search(storage=None, query=None, **kw):
-        return [{"chunk_index": 3, "score": 0.85, "source": "fts5",
-                 "text": "The pressure sensor range is 150 psi."}]
+        return [
+            {
+                "chunk_index": 3,
+                "score": 0.85,
+                "source": "fts5",
+                "text": "The pressure sensor range is 150 psi.",
+            }
+        ]
 
     def fake_json(messages, model=None):
         calls["verify"] += 1
@@ -261,8 +270,7 @@ def test_loop_gate_skips_verifier_when_evidence_strong(monkeypatch):
     monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
     monkeypatch.setattr(pipeline_mod, "chat_completion", fake_chat)
 
-    _, _, metrics = p.query_loop(1, "what pressure sensor?",
-                                 verifier_gate=2)
+    _, _, metrics = p.query_loop(1, "what pressure sensor?", verifier_gate=2)
 
     assert calls["verify"] == 0
     assert metrics["stop_reason"] == "score_confident"
@@ -278,8 +286,14 @@ def test_loop_gate_not_fired_still_verifies(monkeypatch):
     # Top-1 chunk shares NO content tokens with the question ("manual
     # overload protection" vs "pneumatic valve").
     def fake_search(storage=None, query=None, **kw):
-        return [{"chunk_index": 7, "score": 0.6, "source": "fts5",
-                 "text": "manual overload protection circuit"}]
+        return [
+            {
+                "chunk_index": 7,
+                "score": 0.6,
+                "source": "fts5",
+                "text": "manual overload protection circuit",
+            }
+        ]
 
     def fake_json(messages, model=None):
         calls["verify"] += 1
@@ -306,8 +320,14 @@ def test_loop_gate_default_off(monkeypatch):
     calls = {"verify": 0}
 
     def fake_search(storage=None, query=None, **kw):
-        return [{"chunk_index": 1, "score": 0.9, "source": "fts5",
-                 "text": "the quick brown fox jumps over"}]
+        return [
+            {
+                "chunk_index": 1,
+                "score": 0.9,
+                "source": "fts5",
+                "text": "the quick brown fox jumps over",
+            }
+        ]
 
     def fake_json(messages, model=None):
         calls["verify"] += 1
@@ -333,20 +353,26 @@ def test_loop_gate_default_off(monkeypatch):
 def _real_pipeline_with_chunks(chunks, namespace="default"):
     """Build a Pipeline over a real temp Storage with the given chunks."""
     import tempfile
-    import os
+
     from rag_kit._storage import Storage
 
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     storage = Storage(tmp.name)
     fid = storage.create_file(
-        url=None, file_path="/tmp/fake.txt", filename="fake.txt",
-        chunk_size=1000, overlap=100, total_chunks=len(chunks),
-        chunks=[{"text": c, "keywords": "", "keywords_list": [],
-                 "preview": c[:50], "offset": i * 500}
-                for i, c in enumerate(chunks)],
+        url=None,
+        file_path="/tmp/fake.txt",
+        filename="fake.txt",
+        chunk_size=1000,
+        overlap=100,
+        total_chunks=len(chunks),
+        chunks=[
+            {"text": c, "keywords": "", "keywords_list": [], "preview": c[:50], "offset": i * 500}
+            for i, c in enumerate(chunks)
+        ],
         namespace=namespace,
-        source_type="text", content_hash=f"hash-{namespace}",
+        source_type="text",
+        content_hash=f"hash-{namespace}",
     )
     p = Pipeline.__new__(Pipeline)
     p._storage = storage
@@ -359,16 +385,22 @@ def _real_pipeline_with_chunks(chunks, namespace="default"):
 def test_standard_query_teaches_toc_from_processed_chunks(monkeypatch):
     """A standard query — even one that 'finds no answer' — records
     chunk-derived TOC entries from the chunks it examined."""
-    p, storage, fid = _real_pipeline_with_chunks([
-        "Relief valve sizing formula: A = Q / (K * P).",
-        "Thermal expansion rate for steam lines is 0.12 mm/m.",
-    ])
+    p, storage, fid = _real_pipeline_with_chunks(
+        [
+            "Relief valve sizing formula: A = Q / (K * P).",
+            "Thermal expansion rate for steam lines is 0.12 mm/m.",
+        ]
+    )
 
     def fake_search(storage=None, query=None, **kw):
         return [
-            {"file_id": fid, "chunk_index": 0, "score": 0.8,
-             "source": "vector", "text": "Relief valve sizing formula: "
-             "A = Q / (K * P)."},
+            {
+                "file_id": fid,
+                "chunk_index": 0,
+                "score": 0.8,
+                "source": "vector",
+                "text": "Relief valve sizing formula: A = Q / (K * P).",
+            },
         ]
 
     def fake_chat(messages, config=None, timeout=120):
@@ -392,30 +424,39 @@ def test_standard_query_teaches_toc_from_processed_chunks(monkeypatch):
 def test_agentic_query_teaches_toc_from_seen_chunks(monkeypatch):
     """Agentic path: chunks the executor READ become TOC entries, even
     when the searcher gave up with NO_RELEVANT_CONTENT_FOUND."""
-    p, storage, fid = _real_pipeline_with_chunks([
-        "Maintenance schedule: quarterly inspection of drives.",
-        "Spare part catalog: P300-p312 pump kits.",
-    ])
+    p, storage, fid = _real_pipeline_with_chunks(
+        [
+            "Maintenance schedule: quarterly inspection of drives.",
+            "Spare part catalog: P300-p312 pump kits.",
+        ]
+    )
 
     def fake_search(storage=None, query=None, **kw):
         return [
-            {"file_id": fid, "chunk_index": 1, "score": 0.9,
-             "source": "vector", "text": "Spare part catalog: "
-             "P300-p312 pump kits."},
+            {
+                "file_id": fid,
+                "chunk_index": 1,
+                "score": 0.9,
+                "source": "vector",
+                "text": "Spare part catalog: P300-p312 pump kits.",
+            },
         ]
 
     # Simulate the executor's tool loop: it calls search_document once,
     # gets the chunk, then reports it found nothing relevant (the query
     # genuinely isn't answerable from this doc).
-    def fake_agentic_chat(messages, tools, tool_executor, config,
-                          max_turns=10, timeout=45, total_timeout=180):
+    def fake_agentic_chat(
+        messages, tools, tool_executor, config, max_turns=10, timeout=45, total_timeout=180
+    ):
         result = tool_executor("search_document", {"query": "torque spec"})
-        trace = [{
-            "tool_call_id": "call_1",
-            "tool_name": "search_document",
-            "arguments": {"query": "torque spec"},
-            "result": result[:2000],
-        }]
+        trace = [
+            {
+                "tool_call_id": "call_1",
+                "tool_name": "search_document",
+                "arguments": {"query": "torque spec"},
+                "result": result[:2000],
+            }
+        ]
         return "NO_RELEVANT_CONTENT_FOUND", trace
 
     def fake_chat(messages, config=None, timeout=120):
@@ -441,13 +482,15 @@ def test_loop_query_teaches_toc_from_collected_chunks(monkeypatch):
     """Loop path: chunks collected by the loop (even stopped at
     max_loops) become TOC entries."""
     # 5 chunks so get_chunk() resolves every index the fake returns.
-    p, storage, fid = _real_pipeline_with_chunks([
-        "Pressure relief valve setpoint: 150 psi. (chunk 0)",
-        "Pressure relief valve setpoint: 160 psi. (chunk 1)",
-        "Pressure relief valve setpoint: 170 psi. (chunk 2)",
-        "Pressure relief valve setpoint: 180 psi. (chunk 3)",
-        "Pressure relief valve setpoint: 190 psi. (chunk 4)",
-    ])
+    p, storage, fid = _real_pipeline_with_chunks(
+        [
+            "Pressure relief valve setpoint: 150 psi. (chunk 0)",
+            "Pressure relief valve setpoint: 160 psi. (chunk 1)",
+            "Pressure relief valve setpoint: 170 psi. (chunk 2)",
+            "Pressure relief valve setpoint: 180 psi. (chunk 3)",
+            "Pressure relief valve setpoint: 190 psi. (chunk 4)",
+        ]
+    )
 
     # Each round returns a NEW chunk (indices 0, 1, 2, ...) so the loop
     # keeps adding evidence and hits max_loops rather than no_new_chunks.
@@ -456,10 +499,13 @@ def test_loop_query_teaches_toc_from_collected_chunks(monkeypatch):
     def fake_search(storage=None, query=None, **kw):
         idx = next(seq)
         return [
-            {"file_id": fid, "chunk_index": idx, "score": 0.85,
-             "source": "vector",
-             "text": f"Pressure relief valve setpoint: {150 + idx} psi. "
-                     f"(chunk {idx})"},
+            {
+                "file_id": fid,
+                "chunk_index": idx,
+                "score": 0.85,
+                "source": "vector",
+                "text": f"Pressure relief valve setpoint: {150 + idx} psi. (chunk {idx})",
+            },
         ]
 
     def fake_json(messages, model=None):
@@ -490,14 +536,19 @@ def test_loop_query_teaches_toc_from_collected_chunks(monkeypatch):
 
 def test_learned_menu_merges_chunk_entries(monkeypatch):
     """The self-updating TOC menu includes chunk-derived entries."""
-    p, storage, fid = _real_pipeline_with_chunks([
-        "Relief valve sizing formula: A = Q / (K * P).",
-    ])
-    storage.learned_toc_add(fid, "Relief valve sizing formula", 0, 0,
-                            source="chunk")
-    storage.cache_put(f"file:{fid}", "what sizing formula",
-                      "what sizing formula", "A = Q/(KP)",
-                      [{"file_id": fid, "chunk_index": 0, "matched": True}])
+    p, storage, fid = _real_pipeline_with_chunks(
+        [
+            "Relief valve sizing formula: A = Q / (K * P).",
+        ]
+    )
+    storage.learned_toc_add(fid, "Relief valve sizing formula", 0, 0, source="chunk")
+    storage.cache_put(
+        f"file:{fid}",
+        "what sizing formula",
+        "what sizing formula",
+        "A = Q/(KP)",
+        [{"file_id": fid, "chunk_index": 0, "matched": True}],
+    )
 
     entries = p._learned_menu_entries(fid, mappings=[])
     sources = {e["source"] for e in entries}
@@ -513,10 +564,12 @@ def test_learned_menu_merges_chunk_entries(monkeypatch):
 
 def test_ai_headings_used_when_enabled(monkeypatch):
     """toc_ai_headings=True: the router model generates the headings."""
-    p, storage, fid = _real_pipeline_with_chunks([
-        "Relief valve sizing formula: A = Q / (K * P).",
-        "Thermal expansion rate for steam lines is 0.12 mm/m.",
-    ])
+    p, storage, fid = _real_pipeline_with_chunks(
+        [
+            "Relief valve sizing formula: A = Q / (K * P).",
+            "Thermal expansion rate for steam lines is 0.12 mm/m.",
+        ]
+    )
     p._toc_ai_headings = True
     ai_calls = {"n": 0}
 
@@ -524,20 +577,22 @@ def test_ai_headings_used_when_enabled(monkeypatch):
         ai_calls["n"] += 1
         # Router model returns structured headings — note chunk 0 gets a
         # MEANINGFUL heading, not the first-line truncation.
-        return {"headings": [
-            {"chunk_index": 0, "heading": "Relief valve sizing — "
-                                          "orifice area formula"},
-            {"chunk_index": 1, "heading": "Steam line thermal expansion"},
-        ]}
+        return {
+            "headings": [
+                {"chunk_index": 0, "heading": "Relief valve sizing — orifice area formula"},
+                {"chunk_index": 1, "heading": "Steam line thermal expansion"},
+            ]
+        }
 
     monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
 
-    n = p._record_chunk_learnings(fid, [
-        {"chunk_index": 0, "text": "Relief valve sizing formula: "
-                                   "A = Q / (K * P)."},
-        {"chunk_index": 1, "text": "Thermal expansion rate for steam "
-                                   "lines is 0.12 mm/m."},
-    ])
+    n = p._record_chunk_learnings(
+        fid,
+        [
+            {"chunk_index": 0, "text": "Relief valve sizing formula: A = Q / (K * P)."},
+            {"chunk_index": 1, "text": "Thermal expansion rate for steam lines is 0.12 mm/m."},
+        ],
+    )
 
     assert n == 2
     assert ai_calls["n"] == 1  # ONE batched call, not per chunk
@@ -550,9 +605,11 @@ def test_ai_headings_used_when_enabled(monkeypatch):
 def test_ai_headings_fallback_to_deterministic(monkeypatch):
     """If the AI call fails/returns garbage, deterministic headings are
     still recorded — learning never breaks."""
-    p, storage, fid = _real_pipeline_with_chunks([
-        "Relief valve sizing formula: A = Q / (K * P).",
-    ])
+    p, storage, fid = _real_pipeline_with_chunks(
+        [
+            "Relief valve sizing formula: A = Q / (K * P).",
+        ]
+    )
     p._toc_ai_headings = True
 
     def fake_json(messages, model=None):
@@ -560,10 +617,12 @@ def test_ai_headings_fallback_to_deterministic(monkeypatch):
 
     monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
 
-    n = p._record_chunk_learnings(fid, [
-        {"chunk_index": 0, "text": "Relief valve sizing formula: "
-                                   "A = Q / (K * P)."},
-    ])
+    n = p._record_chunk_learnings(
+        fid,
+        [
+            {"chunk_index": 0, "text": "Relief valve sizing formula: A = Q / (K * P)."},
+        ],
+    )
 
     assert n == 1
     learned = storage.learned_toc_list(fid)
@@ -573,22 +632,25 @@ def test_ai_headings_fallback_to_deterministic(monkeypatch):
 
 def test_ai_headings_off_uses_deterministic(monkeypatch):
     """Default (flag off): deterministic headings, NO AI call."""
-    p, storage, fid = _real_pipeline_with_chunks([
-        "Relief valve sizing formula: A = Q / (K * P).",
-    ])
+    p, storage, fid = _real_pipeline_with_chunks(
+        [
+            "Relief valve sizing formula: A = Q / (K * P).",
+        ]
+    )
     ai_calls = {"n": 0}
 
     def fake_json(messages, model=None):
         ai_calls["n"] += 1
-        return {"headings": [{"chunk_index": 0,
-                              "heading": "AI generated"}]}
+        return {"headings": [{"chunk_index": 0, "heading": "AI generated"}]}
 
     monkeypatch.setattr(pipeline_mod, "json_completion", fake_json)
 
-    n = p._record_chunk_learnings(fid, [
-        {"chunk_index": 0, "text": "Relief valve sizing formula: "
-                                   "A = Q / (K * P)."},
-    ])
+    n = p._record_chunk_learnings(
+        fid,
+        [
+            {"chunk_index": 0, "text": "Relief valve sizing formula: A = Q / (K * P)."},
+        ],
+    )
 
     assert n == 1
     assert ai_calls["n"] == 0  # no AI call when flag off
