@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    event,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, relationship
@@ -270,6 +271,16 @@ def _create_engine(db_path: str):
 
     engine = create_engine(db_path, echo=False)
     Base.metadata.create_all(engine)
+
+    # Enforce FK cascades (learned_toc.ondelete=CASCADE etc.) — SQLite
+    # defaults to foreign_keys=OFF per connection, so the declared
+    # constraints silently never fire otherwise.
+    if db_path.startswith("sqlite"):
+        @event.listens_for(engine, "connect")
+        def _fk_on(dbapi_conn, _record):  # noqa: ANN001
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.close()
 
     # Migrate existing database: add section_mappings column if missing
     _migrate_schema(engine)
@@ -800,6 +811,15 @@ class Storage:
             rec = db.query(RAGFile).filter(RAGFile.id == file_id).first()
             if not rec:
                 return False
+            # Purge per-file derived state so deleting a file leaves no
+            # orphans: learned TOC entries (no FK enforcement on old
+            # SQLite DBs) and cached answers scoped to this file.
+            db.query(LearnedToc).filter(LearnedToc.file_id == file_id).delete(
+                synchronize_session=False
+            )
+            db.query(QueryCache).filter(QueryCache.scope == f"file:{file_id}").delete(
+                synchronize_session=False
+            )
             db.delete(rec)
             db.commit()
             return True

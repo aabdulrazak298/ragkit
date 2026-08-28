@@ -134,6 +134,30 @@ def test_delete_file(tmp_db):
     assert storage.delete_file(fid) is False
 
 
+def test_delete_file_purges_learned_toc_and_cache(tmp_db):
+    """Deleting a file must purge its learned TOC entries and cached
+    answers — otherwise a re-uploaded file with the same id inherits
+    stale derived state (and the DB grows orphan rows)."""
+    storage = Storage(tmp_db)
+    fid = _create_test_file(storage)
+    storage.set_toc(fid, "1. Section A\n2. Section B")
+    storage.learned_toc_add(
+        file_id=fid, heading="Learned heading", chunk_start=0, chunk_end=2
+    )
+    storage.cache_put(f"file:{fid}", "some question", "some question", "answer", [])
+    # an unrelated namespace-scoped cache row must survive
+    storage.cache_put("ns:other", "q", "q", "a", [])
+
+    assert storage.delete_file(fid) is True
+
+    with storage.session() as db:
+        from rag_kit._storage import LearnedToc, QueryCache
+
+        assert db.query(LearnedToc).filter(LearnedToc.file_id == fid).count() == 0
+        assert db.query(QueryCache).filter(QueryCache.scope == f"file:{fid}").count() == 0
+        assert db.query(QueryCache).filter(QueryCache.scope == "ns:other").count() == 1
+
+
 def test_list_files(tmp_db):
     storage = Storage(tmp_db)
     assert len(storage.list_files()) == 0
