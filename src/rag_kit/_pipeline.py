@@ -197,6 +197,7 @@ def _build_synthesis_prompt(
     question: str,
     terse: bool = False,
     conversation: str | None = None,
+    personality: str | None = None,
 ) -> list[str]:
     """Build the synthesis prompt for the standard query pipeline.
 
@@ -204,6 +205,7 @@ def _build_synthesis_prompt(
     tokens than the comprehensive style (see benchmark/run_benchmark.py).
     conversation: optional prior chat thread so follow-ups ("give an
     example to set up this") resolve pronouns against it.
+    personality: optional answerer persona prepended to the instruction.
     """
     instruction = (
         "Answer the question directly and concisely in a few sentences, using only the content above. "
@@ -214,6 +216,8 @@ def _build_synthesis_prompt(
         "Include specific technical details, parameter values, register names, pin numbers, "
         "configuration settings, or step-by-step instructions from the document where relevant."
     )
+    if personality and personality.strip():
+        instruction = f"{personality.strip()}\n\n{instruction}"
     parts = [
         f"Document: {info.get('filename', 'unknown')}",
         f"TOC:\n{toc[:1000] if toc else 'None'}",
@@ -348,7 +352,9 @@ class Pipeline:
         config = self._resolve_config(llm_config)
 
         # Step 3: LLM synthesis
-        content_parts = _build_synthesis_prompt(info, toc, chunks_text, question, terse, conversation)
+        content_parts = _build_synthesis_prompt(
+            info, toc, chunks_text, question, terse, conversation, config.personality
+        )
 
         answer = chat_completion(
             messages=[{"role": "user", "content": "\n".join(content_parts)}],
@@ -402,7 +408,9 @@ class Pipeline:
 
         config = self._resolve_config(llm_config)
 
-        content_parts = _build_synthesis_prompt(info, toc, chunks_text, question, terse, conversation)
+        content_parts = _build_synthesis_prompt(
+            info, toc, chunks_text, question, terse, conversation, config.personality
+        )
 
         answer = await achat_completion(
             messages=[{"role": "user", "content": "\n".join(content_parts)}],
@@ -1318,7 +1326,9 @@ class Pipeline:
             model=config.model,
             base_url=config.base_url,
             temperature=config.temperature,
+            top_p=config.top_p,
             reasoning_effort="high",
+            personality=config.personality,
         )
         _t_synth = _time.monotonic()
         answerer_content = (
@@ -1327,7 +1337,12 @@ class Pipeline:
             f"Relevant excerpts:\n{chr(10).join(chunks_text)}\n\n"
             + (f"Conversation so far (resolve 'this'/'it' against it):\n{conversation}\n\n" if conversation else "")
             + f"Question: {question}\n\n"
-            "Answer comprehensively based on the content above. "
+            + (
+                f"{config.personality.strip()}\n\n"
+                if config.personality and config.personality.strip()
+                else ""
+            )
+            + "Answer comprehensively based on the content above. "
             "Include specific technical details, parameter names, values, "
             "register names, pin numbers, configuration settings, or "
             "step-by-step instructions from the document where relevant. "
@@ -2126,10 +2141,13 @@ class Pipeline:
             "",
             f"Question: {question}",
             "",
-            "Answer comprehensively based on the content above. "
-            "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
-            "Reference the section name when citing specific information. "
-            "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text.",
+            (
+                (f"{config.personality.strip()}\n\n" if config.personality and config.personality.strip() else "")
+                + "Answer comprehensively based on the content above. "
+                "Include specific technical details, parameter names, values, register names, pin numbers, configuration settings, or step-by-step instructions from the document where relevant. "
+                "Reference the section name when citing specific information. "
+                "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text."
+            ),
         ]
 
         answer = chat_completion(

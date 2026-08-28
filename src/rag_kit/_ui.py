@@ -30,6 +30,33 @@ KEEP_TURNS = 4
 # so long threads stay inside the model's context budget.
 HISTORY_TOKEN_BUDGET = 6000
 
+# Answerer personality presets (Settings → Answerer). The stored setting
+# is the prompt text, so behavior stays stable across label tweaks.
+PERSONALITY_PRESETS: dict[str, str] = {
+    "Helpful AI (default)": "You are a helpful AI assistant.",
+    "Concise Engineer": (
+        "You are a concise, no-nonsense hardware engineer. Answer in short, "
+        "direct sentences with exact values and register names. No filler, no "
+        "preamble, no pleasantries."
+    ),
+    "Friendly Teacher": (
+        "You are a patient, friendly electronics teacher. Explain concepts step "
+        "by step, define terms before using them, and give concrete examples. "
+        "Encourage understanding over memorization."
+    ),
+    "Technical Writer": (
+        "You are a precise technical writer. Answer in clear, structured prose "
+        "with numbered steps and bullet points where helpful. Use formal "
+        "terminology consistently."
+    ),
+    "Expert Consultant": (
+        "You are an authoritative embedded-systems consultant. Give thorough, "
+        "well-structured answers covering the relevant options, trade-offs, and "
+        "a recommended approach. Reference the document section you are drawing "
+        "from."
+    ),
+}
+
 # Tool schemas for the tool-calling chat: retrieval and TOC lookup. The
 # model decides when to call them; the executor is bound to the attached
 # file (RAGApp._tool_executor).
@@ -108,6 +135,10 @@ class RAGApp:
         self.answer_role: str = ""
         self.search_role: str = ""
         self.converter_role: str = ""
+        # Answerer controls: personality (system-prompt persona), sampling.
+        self.temperature: float = 0.7
+        self.top_p: float | None = None  # None = provider default
+        self.personality: str = ""
         self._settings_path = settings_path or os.path.expanduser("~/.rag-kit/providers.json")
         self._load_settings()
 
@@ -121,6 +152,10 @@ class RAGApp:
             self.answer_role = data.get("answer_role", "")
             self.search_role = data.get("search_role", "")
             self.converter_role = data.get("converter_role", "")
+            self.temperature = float(data.get("temperature", 0.7))
+            top_p = data.get("top_p")
+            self.top_p = float(top_p) if top_p is not None else None
+            self.personality = data.get("personality", "") or ""
         except (OSError, ValueError):
             pass
 
@@ -134,6 +169,9 @@ class RAGApp:
                         "answer_role": self.answer_role,
                         "search_role": self.search_role,
                         "converter_role": self.converter_role,
+                        "temperature": self.temperature,
+                        "top_p": self.top_p,
+                        "personality": self.personality,
                     },
                     f,
                     indent=2,
@@ -214,6 +252,22 @@ class RAGApp:
         )
         return f"Answer: {answer} ({r}) · {s}{c}"
 
+    def set_answerer(
+        self, temperature: float, top_p: float | None, personality: str
+    ) -> str:
+        """Answerer controls: sampling (temperature, top_p) + persona.
+        Personality is stored as prompt TEXT (see PERSONALITY_PRESETS)."""
+        self.temperature = max(0.0, min(2.0, float(temperature)))
+        self.top_p = float(top_p) if top_p is not None else None
+        self.personality = (personality or "").strip()
+        self._save_settings()
+        label = next(
+            (k for k, v in PERSONALITY_PRESETS.items() if v == self.personality),
+            "Custom" if self.personality else "Helpful AI (default)",
+        )
+        top_p_s = f"{self.top_p:.2f}" if self.top_p is not None else "provider default"
+        return f"Answerer: {label} · temp {self.temperature:.2f} · top_p {top_p_s}"
+
     @staticmethod
     def _entry_values(
         entry: dict[str, Any], inherit: dict[str, Any] | None = None
@@ -241,9 +295,16 @@ class RAGApp:
     def _llm_config(self) -> LLMConfig:
         a_entry = self.providers.get(self.answer_role)
         if not a_entry:
-            return LLMConfig()  # fully env-resolved
+            cfg = LLMConfig()  # fully env-resolved
+            cfg.temperature = self.temperature
+            cfg.top_p = self.top_p
+            cfg.personality = self.personality or None
+            return cfg
         model, base_url, api_key = self._entry_values(a_entry)
         cfg = LLMConfig(model=model, base_url=base_url, api_key=api_key)
+        cfg.temperature = self.temperature
+        cfg.top_p = self.top_p
+        cfg.personality = self.personality or None
         # Search-side role: separate provider when chosen, else the answer
         # model handles routing/headings/expansion/verifier too. Blank
         # router sub-fields inherit from the answer provider (not env).
@@ -480,8 +541,10 @@ class RAGApp:
         except Exception:
             pass
 
+        persona = (cfg.personality or "").strip()
         system = (
-            "You are a document assistant. "
+            (persona + "\n\n" if persona else "")
+            + "You are a document assistant. "
             + (
                 f"The user has a document attached: \"{doc_name}\". "
                 if doc_name
@@ -933,6 +996,65 @@ def build_app(app: RAGApp | None = None) -> Any:
                 _save_roles,
                 inputs=[answer_dd, search_dd, conv_dd],
                 outputs=roles_status,
+            )
+
+            # 3 · Answerer — personality, sampling
+            gr.Markdown(
+                "**3 · Answerer** — the model's persona and sampling when writing "
+                "answers. Personality presets are stored as prompt text; pick "
+                "Custom… to write your own."
+            )
+            saved_p = app.personality or ""
+            initial_persona = next(
+                (k for k, v in PERSONALITY_PRESETS.items() if v == saved_p),
+                "Custom…" if saved_p else "Helpful AI (default)",
+            )
+            a_persona_dd = gr.Dropdown(
+                list(PERSONALITY_PRESETS) + ["Custom…"],
+                value=initial_persona,
+                label="Personality",
+            )
+            a_persona_custom = gr.Textbox(
+                label="Custom personality prompt",
+                placeholder=(
+                    "e.g. You are a grumpy but brilliant firmware engineer. "
+                    "Short answers, dry humor, always give the register bits."
+                ),
+                lines=2,
+                value=saved_p if initial_persona == "Custom…" else "",
+                visible=initial_persona == "Custom…",
+            )
+            with gr.Row():
+                a_temp = gr.Slider(
+                    0.0, 2.0, value=app.temperature, step=0.05, label="Temperature"
+                )
+                a_topp = gr.Slider(
+                    0.0,
+                    1.0,
+                    value=app.top_p if app.top_p is not None else 1.0,
+                    step=0.05,
+                    label="Top P (1.0 = provider default)",
+                )
+            a_save = gr.Button("Save answerer")
+            a_status = gr.Markdown()
+
+            def _on_persona(label):
+                if label == "Custom…":
+                    return gr.update(visible=True)
+                return gr.update(visible=False, value=PERSONALITY_PRESETS.get(label, ""))
+
+            def _save_answerer(label, custom, temperature, top_p):
+                if label == "Custom…":
+                    persona = custom or ""
+                else:
+                    persona = PERSONALITY_PRESETS.get(label, "")
+                return app.set_answerer(temperature, top_p, persona)
+
+            a_persona_dd.change(_on_persona, inputs=a_persona_dd, outputs=a_persona_custom)
+            a_save.click(
+                _save_answerer,
+                inputs=[a_persona_dd, a_persona_custom, a_temp, a_topp],
+                outputs=a_status,
             )
 
     return demo

@@ -8,7 +8,7 @@ gradio; build_app() is the only gradio touchpoint.
 import pytest
 
 from rag_kit.__main__ import build_parser
-from rag_kit._ui import PROVIDER_PRESETS, RAGApp, resolve_provider_base
+from rag_kit._ui import PERSONALITY_PRESETS, PROVIDER_PRESETS, RAGApp, resolve_provider_base
 
 
 @pytest.fixture
@@ -160,6 +160,48 @@ class TestRAGApp:
         b = RAGApp(db_path=str(tmp_path / "b.db"), settings_path=p)
         assert b.list_providers() == ["DeepSeek"]
         assert b.answer_role == "DeepSeek"
+
+    def test_answerer_settings_wire_into_llm_config(self, app):
+        app.add_provider("DS", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        app.set_roles("DS")
+        app.set_answerer(0.9, 0.95, "You are a pirate.")
+        cfg = app._llm_config()
+        assert cfg.temperature == 0.9
+        assert cfg.top_p == 0.95
+        assert cfg.personality == "You are a pirate."
+        # clamps
+        app.set_answerer(9.0, 0.5, "")
+        assert app._llm_config().temperature == 2.0
+        assert app._llm_config().personality is None
+
+    def test_answerer_settings_persist(self, tmp_path):
+        p = str(tmp_path / "providers.json")
+        a = RAGApp(db_path=str(tmp_path / "a.db"), settings_path=p)
+        a.set_answerer(0.4, None, "You are a helpful AI assistant.")
+        b = RAGApp(db_path=str(tmp_path / "b.db"), settings_path=p)
+        assert b.temperature == 0.4
+        assert b.top_p is None
+        assert b.personality == "You are a helpful AI assistant."
+
+    def test_personality_presets_have_five_with_default(self):
+        assert len(PERSONALITY_PRESETS) == 5
+        assert PERSONALITY_PRESETS["Helpful AI (default)"] == "You are a helpful AI assistant."
+
+    def test_tool_chat_system_prompt_includes_personality(self, app, monkeypatch):
+        import rag_kit._ui as ui
+
+        app.set_answerer(0.7, None, "You are a pirate.")
+        captured = {}
+
+        def fake_ct(messages, config, tools, executor, **kw):
+            captured["messages"] = messages
+            return "answer", []
+
+        monkeypatch.setattr(ui, "chat_completion_tools", fake_ct)
+        app._tool_chat([{"role": "user", "content": "hi"}], file_id="1")
+        sysmsg = captured["messages"][0]["content"]
+        assert sysmsg.startswith("You are a pirate.")
+        assert "document attached" in sysmsg.lower()
 
     def test_provider_thinking_toggle_wires_roles(self, app):
         app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")

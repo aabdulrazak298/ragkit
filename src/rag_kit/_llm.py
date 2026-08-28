@@ -60,6 +60,11 @@ class LLMConfig:
     # honored as-is and never re-routed.
     base_url: str | None = None
     temperature: float = 0.1
+    top_p: float | None = None  # nucleus sampling; None = provider default
+    # Answerer personality — prepended to the answer system prompt
+    # (chat tool + pipeline synthesis). Blank = the built-in document
+    # assistant persona.
+    personality: str | None = None
     reasoning_effort: str | None = None  # "high", "max" — DeepSeek thinking effort
     thinking_enabled: bool = True  # DeepSeek: thinking mode on/off (default: on for V4)
     reasoning: bool | None = None  # OpenRouter: reasoning.enabled toggle (None = provider default)
@@ -169,7 +174,8 @@ def chat_completion(
             "model": config.model,
             "messages": messages,
             "temperature": config.temperature,
-            **({"max_tokens": config.max_tokens} if config.max_tokens else {}),
+            **( {"top_p": config.top_p} if config.top_p is not None else {}),
+            **( {"max_tokens": config.max_tokens} if config.max_tokens else {}),
             **extra,
         },
         timeout=timeout,
@@ -210,7 +216,8 @@ async def achat_completion(
             "model": config.model,
             "messages": messages,
             "temperature": config.temperature,
-            **({"max_tokens": config.max_tokens} if config.max_tokens else {}),
+            **( {"top_p": config.top_p} if config.top_p is not None else {}),
+            **( {"max_tokens": config.max_tokens} if config.max_tokens else {}),
             **extra,
         },
         timeout=timeout,
@@ -503,6 +510,7 @@ def chat_completion_tools(
             "model": config.model,
             "messages": msgs,
             "temperature": config.temperature,
+            **( {"top_p": config.top_p} if config.top_p is not None else {}),
             **( {"max_tokens": config.max_tokens} if config.max_tokens else {}),
             "tools": tools,
             "tool_choice": "auto",

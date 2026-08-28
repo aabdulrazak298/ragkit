@@ -178,6 +178,27 @@ class TestRouterConfig:
         assert router_completion([{"role": "user", "content": "hi"}]).startswith("[Mock")
         assert json_completion([{"role": "user", "content": "hi"}]) == {}
 
+    def test_top_p_and_personality_in_chat_payload(self, monkeypatch):
+        """top_p is sent when set; personality is prompt-level (not a
+        payload field)."""
+        fake = _FakeClient(["ok"])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        cfg = LLMConfig(
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com/v1",
+            api_key="k",
+            temperature=0.9,
+            top_p=0.95,
+            personality="You are a pirate.",
+        )
+        from rag_kit._llm import chat_completion
+
+        assert chat_completion([{"role": "user", "content": "hi"}], cfg) == "ok"
+        payload = fake.calls[0]
+        assert payload["temperature"] == 0.9
+        assert payload["top_p"] == 0.95
+        assert "personality" not in payload  # prompt-level, not a payload field
+
     def test_router_reasoning_carries_converter(self):
         """router_reasoning=True + converter triple survive resolution."""
         cfg = LLMConfig(
