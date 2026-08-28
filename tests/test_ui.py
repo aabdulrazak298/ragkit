@@ -110,6 +110,17 @@ class TestRAGApp:
     def test_add_provider_requires_name(self, app):
         assert "required" in app.add_provider("", "m", "u", "k")
 
+    def test_add_provider_autofills_known_base_url(self, app):
+        # Known providers need no base URL — DeepSeek/OpenRouter/OpenAI
+        # are auto-set by name.
+        app.add_provider("DeepSeek", "deepseek-v4-flash", "", "sk-1")
+        assert app.providers["DeepSeek"]["base_url"] == "https://api.deepseek.com/v1"
+        app.add_provider("OpenRouter", "gpt-x", "", "sk-2")
+        assert app.providers["OpenRouter"]["base_url"] == "https://openrouter.ai/api/v1"
+        # Unknown names stay blank (env auto-detect at call time)
+        app.add_provider("MyProxy", "m", "", "sk-3")
+        assert app.providers["MyProxy"]["base_url"] == ""
+
     def test_remove_provider_clears_roles(self, app):
         app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
         app.add_provider("OpenRouter", "gpt-x", "https://openrouter.ai/api/v1", "sk-2")

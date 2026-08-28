@@ -96,13 +96,18 @@ class RAGApp:
             pass  # settings persistence is best-effort
 
     def add_provider(self, name: str, model: str, base_url: str, api_key: str) -> str:
-        """Add or replace a named provider endpoint. Blank model = default."""
+        """Add or replace a named provider endpoint. Blank model = default;
+        blank base URL auto-fills for known providers (OpenRouter, DeepSeek,
+        OpenAI) by name."""
         name = (name or "").strip()
         if not name:
             return "Provider name is required."
+        base_url = (base_url or "").strip()
+        if not base_url:
+            base_url = PROVIDER_PRESETS.get(name, "")
         self.providers[name] = {
             "model": (model or "").strip() or DEFAULT_MODEL,
-            "base_url": (base_url or "").strip(),
+            "base_url": base_url,
             "api_key": (api_key or "").strip(),
         }
         self._save_settings()
@@ -556,10 +561,14 @@ def build_app(app: RAGApp | None = None) -> Any:
                 p_preset = gr.Dropdown(
                     list(PROVIDER_PRESETS.keys()),
                     value="OpenRouter",
-                    label="Provider type (auto-fills base URL)",
+                    label="Provider type",
                     scale=1,
                 )
-                p_base = gr.Textbox(label="Base URL", scale=2)
+                p_base = gr.Textbox(
+                    label="Base URL (custom providers only)",
+                    scale=2,
+                    visible=False,  # known providers set it automatically
+                )
                 p_key = gr.Textbox(label="API key", type="password", scale=2)
             with gr.Row():
                 add_btn = gr.Button("+ Add provider", variant="primary")
@@ -599,6 +608,14 @@ def build_app(app: RAGApp | None = None) -> Any:
                     _fmt_providers(app),
                 )
 
+            def _on_preset(provider):
+                """Known providers (OpenRouter/DeepSeek/OpenAI) have a
+                fixed base URL — hide the field; only Custom needs typing."""
+                preset = PROVIDER_PRESETS.get(provider, "")
+                if preset:
+                    return gr.update(visible=False, value=preset)
+                return gr.update(visible=True, value="")
+
             def _add(name, model, base, key, preset):
                 resolved = resolve_provider_base(preset, base)
                 msg = app.add_provider(name, model, resolved, key)
@@ -614,6 +631,7 @@ def build_app(app: RAGApp | None = None) -> Any:
                 search = "" if search == "Same as answer" else search
                 return app.set_roles(answer, search)
 
+            p_preset.change(_on_preset, inputs=p_preset, outputs=p_base)
             add_btn.click(
                 _add,
                 inputs=[p_name, p_model, p_base, p_key, p_preset],
