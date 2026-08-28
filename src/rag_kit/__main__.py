@@ -169,7 +169,7 @@ def main():
 
     elif args.command == "ui":
         try:
-            from rag_kit._ui import RAGApp, build_app
+            from rag_kit._ui import CHAT_CSS, RAGApp, build_app
 
             demo = build_app(RAGApp(db_path=args.db, embed_backend=args.embed_backend))
         except ImportError:
@@ -178,7 +178,12 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(1)
-        demo.launch(server_name=args.host, server_port=args.port, share=args.share)
+        demo.launch(
+            server_name=args.host,
+            server_port=args.port,
+            share=args.share,
+            css=CHAT_CSS,  # Gradio 6: css moved from Blocks() to launch()
+        )
 
 
 if __name__ == "__main__":

@@ -132,21 +132,6 @@ class TestChatTurn:
         history = app.chat_turn([], "q", file_id="1")
         assert history[1]["content"] == "The answer"
 
-    def test_upload_in_chat_loads_file(self, app, doc):
-        history = app.chat_turn([], "summarize this", files=[doc])
-        # file attached to the user bubble
-        assert history[0]["role"] == "user"
-        assert history[0]["files"] == [doc]
-        # and actually loaded into the RAG store
-        assert any("doc.txt" in r for r in app.list_files())
-        assert history[1]["role"] == "assistant"
-        assert history[1]["content"].strip()
-
-    def test_no_files_key_when_no_upload(self, app, doc):
-        _, fid = app.load_file(doc)
-        history = app.chat_turn([], "q", file_id=fid)
-        assert "files" not in history[0]
-
 
 class TestSummarization:
     """FlaskChat-style memory: conversations past 7 turns get summarized."""

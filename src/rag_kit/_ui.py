@@ -187,26 +187,19 @@ class RAGApp:
         question: str,
         file_id: str | None = None,
         mode: str = "standard",
-        files: list[str] | None = None,
     ) -> list:
         """ChatGPT-style turn: append the user and assistant messages.
 
         history is a list of message dicts ({'role': ..., 'content': ...},
-        the Gradio 6 Chatbot format). Optional `files` (paths) are loaded
-        into the RAG store and attached to the user bubble. Returns the new
-        history (input untouched for blank questions). Answers are plain —
-        no chunk/citation references.
+        the Gradio 6 Chatbot format). Returns the new history (input
+        untouched for blank questions). Answers are plain — no
+        chunk/citation references.
         """
         history = [dict(m) for m in (history or [])]
         if not question or not question.strip():
             return history
         history = self._maybe_summarize(history)
-        user_msg: dict = {"role": "user", "content": question}
-        if files:
-            for f in files:
-                self.load_file(f)
-            user_msg["files"] = list(files)
-        history.append(user_msg)
+        history.append({"role": "user", "content": question})
         answer, _citations = self.ask(question, file_id=file_id, mode=mode)
         history.append({"role": "assistant", "content": answer})
         return history
@@ -257,6 +250,17 @@ class RAGApp:
             return ""
 
 
+# Keep the chat column a readable width on widescreen monitors.
+# Gradio 6: pass to launch(css=...) — Blocks() no longer accepts it.
+CHAT_CSS = """
+#chat-col {
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+}
+"""
+
+
 def build_app(app: RAGApp | None = None) -> Any:
     """Build the Gradio Blocks app. ImportError if gradio isn't installed."""
     try:
@@ -275,67 +279,48 @@ def build_app(app: RAGApp | None = None) -> Any:
             "ask questions — everything stays on your machine."
         )
 
-        # ── Chat tab (ChatGPT-style) ───────────────────────────────────
+        # ── Chat tab (ChatGPT-style, centered column) ──────────────────
         with gr.Tab("Chat"):
-            with gr.Row():
-                file_dd = gr.Dropdown(
-                    label="File (optional — leave blank for cross-file)",
-                    choices=app.list_files(),
-                    allow_custom_value=True,
-                )
-                mode_rd = gr.Radio(
-                    ["standard", "toc", "loop"],
-                    value="standard",
-                    label="Mode",
-                    info="standard: single retrieval · toc: TOC-first navigation · loop: iterative verification",
-                )
-            chatbot = gr.Chatbot(label="rag-kit", height=480)
-            with gr.Row():
-                chat_input = gr.MultimodalTextbox(
-                    file_types=[
-                        ".txt",
-                        ".md",
-                        ".pdf",
-                        ".docx",
-                        ".pptx",
-                        ".epub",
-                        ".odt",
-                        ".rtf",
-                        ".csv",
-                    ],
-                    placeholder="Ask about your documents, or attach a file…",
-                    scale=6,
-                    container=False,
-                )
-                send_btn = gr.Button("Send", variant="primary", scale=1)
-            new_btn = gr.Button("New chat")
+            with gr.Column(elem_id="chat-col"):
+                with gr.Row():
+                    file_dd = gr.Dropdown(
+                        label="File (optional — leave blank for cross-file)",
+                        choices=app.list_files(),
+                        allow_custom_value=True,
+                    )
+                    mode_rd = gr.Radio(
+                        ["standard", "toc", "loop"],
+                        value="standard",
+                        label="Mode",
+                        info="standard: single retrieval · toc: TOC-first navigation · loop: iterative verification",
+                    )
+                chatbot = gr.Chatbot(label="rag-kit", height=480)
+                with gr.Row():
+                    question_tb = gr.Textbox(
+                        label="",
+                        placeholder="Ask about your documents…",
+                        scale=6,
+                        container=False,
+                    )
+                    send_btn = gr.Button("Send", variant="primary", scale=1)
+                new_btn = gr.Button("New chat")
 
-            def _chat(chat_value, multimodal_input, file_choice, mode):
-                question = ""
-                files: list[str] = []
-                if isinstance(multimodal_input, dict):
-                    question = (multimodal_input.get("text") or "").strip()
-                    raw_files = multimodal_input.get("files") or []
-                    files = [f.name if hasattr(f, "name") else str(f) for f in raw_files]
-                elif multimodal_input:
-                    question = str(multimodal_input).strip()
-                file_id = _extract_id(file_choice)
-                new_history = app.chat_turn(
-                    chat_value, question, file_id=file_id, mode=mode, files=files or None
-                )
-                return new_history, {"text": "", "files": []}
+                def _chat(chat_value, question, file_choice, mode):
+                    file_id = _extract_id(file_choice)
+                    new_history = app.chat_turn(chat_value, question, file_id=file_id, mode=mode)
+                    return new_history, ""
 
-            send_btn.click(
-                _chat,
-                inputs=[chatbot, chat_input, file_dd, mode_rd],
-                outputs=[chatbot, chat_input],
-            )
-            chat_input.submit(
-                _chat,
-                inputs=[chatbot, chat_input, file_dd, mode_rd],
-                outputs=[chatbot, chat_input],
-            )
-            new_btn.click(lambda: [], outputs=[chatbot])
+                send_btn.click(
+                    _chat,
+                    inputs=[chatbot, question_tb, file_dd, mode_rd],
+                    outputs=[chatbot, question_tb],
+                )
+                question_tb.submit(
+                    _chat,
+                    inputs=[chatbot, question_tb, file_dd, mode_rd],
+                    outputs=[chatbot, question_tb],
+                )
+                new_btn.click(lambda: [], outputs=[chatbot])
 
         # ── Search tab ─────────────────────────────────────────────────
         with gr.Tab("Search"):

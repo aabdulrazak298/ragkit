@@ -173,14 +173,14 @@ rag-kit ui --share         # temporary public link (for demos)
 rag-kit ui --embed-backend local   # no-API-key semantic search (MiniLM)
 ```
 
-The UI has four tabs — **Chat** (ChatGPT-style conversation: attach documents
-straight from the input box, follow-ups keep the thread, and past 7 turns the
-older messages auto-collapse into a single Memory summary — FlaskChat-style);
-**Search** (raw chunk retrieval); **Documents** (upload files or URLs, list,
-delete); and **Settings** (pick a provider — OpenRouter / DeepSeek / OpenAI /
-Custom — paste your API key; the base URL auto-fills, and blank fields fall
-back to your environment). The UI runs entirely on your machine; `--share` is
-the only path that creates an external link.
+The UI has four tabs — **Chat** (ChatGPT-style conversation in a centered
+column, follow-ups keep the thread, and past 7 turns the older messages
+auto-collapse into a single Memory summary — FlaskChat-style); **Search**
+(raw chunk retrieval); **Documents** (upload files or URLs, list, delete);
+and **Settings** (pick a provider — OpenRouter / DeepSeek / OpenAI / Custom —
+paste your API key; the base URL auto-fills, and blank fields fall back to
+your environment). The UI runs entirely on your machine; `--share` is the
+only path that creates an external link.
 
 ## License
 
