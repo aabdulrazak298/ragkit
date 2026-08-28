@@ -515,6 +515,7 @@ class RAGSystem:
         toc_first: bool = False,
         terse: bool = False,
         expand_terms: bool = True,
+        conversation: str | None = None,
     ) -> QueryResult:
         """Ask a question about a loaded document.
 
@@ -537,7 +538,9 @@ class RAGSystem:
             QueryResult with .answer (str) and .citations (list[dict]).
         """
         cache_ctx = None
-        if self._use_cache:
+        # Conversational turns (conversation passed) skip the cache: the
+        # answer depends on the thread, and the key is question-only.
+        if self._use_cache and conversation is None:
             if question is not None:
                 scope = f"file:{file_id_or_question}"
                 qtext = question
@@ -566,6 +569,7 @@ class RAGSystem:
                     question=question,
                     llm_config=llm_config,
                     expand_terms=expand_terms,
+                    conversation=conversation,
                 )
             else:
                 answer, citations = self._pipeline.query(
@@ -573,6 +577,7 @@ class RAGSystem:
                     question=question,
                     llm_config=llm_config,
                     terse=terse,
+                    conversation=conversation,
                 )
         elif namespace is not None:
             # Mode 2: question + namespace (cross-file search)
@@ -602,6 +607,7 @@ class RAGSystem:
         toc_first: bool = False,
         terse: bool = False,
         expand_terms: bool = True,
+        conversation: str | None = None,
     ) -> QueryResult:
         """Async query — same contract as query() with async LLM synthesis.
 
@@ -609,7 +615,8 @@ class RAGSystem:
         Namespace/question-only modes fall back to the sync pipeline.
         """
         cache_ctx = None
-        if self._use_cache:
+        # Conversational turns skip the cache (answer depends on thread).
+        if self._use_cache and conversation is None:
             if question is not None:
                 scope = f"file:{file_id_or_question}"
                 qtext = question
@@ -637,6 +644,7 @@ class RAGSystem:
                     question=question,
                     llm_config=llm_config,
                     expand_terms=expand_terms,
+                    conversation=conversation,
                 )
             else:
                 answer, citations = await self._pipeline.aquery(
@@ -644,6 +652,7 @@ class RAGSystem:
                     question=question,
                     llm_config=llm_config,
                     terse=terse,
+                    conversation=conversation,
                 )
         elif namespace is not None:
             answer, citations = self._pipeline.query_by_namespace(
@@ -704,6 +713,7 @@ class RAGSystem:
         llm_config: LLMConfig | None = None,
         max_loops: int = 4,
         verifier_model: str | None = None,
+        conversation: str | None = None,
     ) -> QueryResult:
         """Iterative retrieval loop with a cheap sufficiency verifier.
 
@@ -733,6 +743,7 @@ class RAGSystem:
             llm_config=llm_config,
             max_loops=max_loops,
             verifier_model=verifier_model,
+            conversation=conversation,
         )
         return QueryResult(answer=answer, citations=citations, metrics=metrics)
 

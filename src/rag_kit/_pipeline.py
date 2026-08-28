@@ -191,26 +191,41 @@ def _chunk_to_heading(text: str, max_len: int = 70) -> str:
 
 
 def _build_synthesis_prompt(
-    info: dict, toc: str, chunks_text: list[str], question: str, terse: bool = False
+    info: dict,
+    toc: str,
+    chunks_text: list[str],
+    question: str,
+    terse: bool = False,
+    conversation: str | None = None,
 ) -> list[str]:
     """Build the synthesis prompt for the standard query pipeline.
 
     terse=True asks for a direct, concise answer — measurably fewer output
     tokens than the comprehensive style (see benchmark/run_benchmark.py).
+    conversation: optional prior chat thread so follow-ups ("give an
+    example to set up this") resolve pronouns against it.
     """
     instruction = (
         "Answer the question directly and concisely in a few sentences, using only the content above. "
-        "Include the specific technical details, parameter names, values, register names, pin numbers, "
+        "Include the specific technical details, parameter values, register names, pin numbers, "
         "or settings from the document. No preamble, no repetition, no commentary."
         if terse
         else "Answer comprehensively based on the content above. "
-        "Include specific technical details, parameter names, values, register names, pin numbers, "
+        "Include specific technical details, parameter values, register names, pin numbers, "
         "configuration settings, or step-by-step instructions from the document where relevant."
     )
-    return [
+    parts = [
         f"Document: {info.get('filename', 'unknown')}",
         f"TOC:\n{toc[:1000] if toc else 'None'}",
         "",
+    ]
+    if conversation:
+        parts += [
+            "Conversation so far (resolve references like 'this', 'it', 'the above' against it):",
+            conversation,
+            "",
+        ]
+    parts += [
         "Relevant excerpts:",
         "\n".join(chunks_text),
         "",
@@ -220,6 +235,7 @@ def _build_synthesis_prompt(
         "CRITICAL: Never mention chunk numbers, chunk indices, file IDs, or internal metadata in your answer text. "
         "Do not put [chunk N] or (chunk N) anywhere in your response — present the technical information naturally.",
     ]
+    return parts
 
 
 class Pipeline:
@@ -262,7 +278,12 @@ class Pipeline:
     # ── Existing query methods (unchanged) ────────────────────────────
 
     def query(
-        self, file_id: int, question: str, llm_config: LLMConfig | None = None, terse: bool = False
+        self,
+        file_id: int,
+        question: str,
+        llm_config: LLMConfig | None = None,
+        terse: bool = False,
+        conversation: str | None = None,
     ) -> tuple[str, list[dict]]:
         """Query a specific file. Returns (answer, citations).
 
@@ -327,7 +348,7 @@ class Pipeline:
         config = self._resolve_config(llm_config)
 
         # Step 3: LLM synthesis
-        content_parts = _build_synthesis_prompt(info, toc, chunks_text, question, terse)
+        content_parts = _build_synthesis_prompt(info, toc, chunks_text, question, terse, conversation)
 
         answer = chat_completion(
             messages=[{"role": "user", "content": "\n".join(content_parts)}],
@@ -336,7 +357,12 @@ class Pipeline:
         return answer, citations
 
     async def aquery(
-        self, file_id: int, question: str, llm_config: LLMConfig | None = None, terse: bool = False
+        self,
+        file_id: int,
+        question: str,
+        llm_config: LLMConfig | None = None,
+        terse: bool = False,
+        conversation: str | None = None,
     ) -> tuple[str, list[dict]]:
         """Async query — same retrieval, async LLM synthesis.
 
@@ -376,7 +402,7 @@ class Pipeline:
 
         config = self._resolve_config(llm_config)
 
-        content_parts = _build_synthesis_prompt(info, toc, chunks_text, question, terse)
+        content_parts = _build_synthesis_prompt(info, toc, chunks_text, question, terse, conversation)
 
         answer = await achat_completion(
             messages=[{"role": "user", "content": "\n".join(content_parts)}],
@@ -1189,6 +1215,7 @@ class Pipeline:
         verifier_model: str | None = None,
         top_k: int = 8,
         verifier_gate: int | None = None,
+        conversation: str | None = None,
     ) -> tuple[str, list[dict], dict]:
         """Iterative retrieval loop with a cheap sufficiency verifier.
 
@@ -1298,7 +1325,8 @@ class Pipeline:
             f"Document: {info.get('filename', 'unknown')}\n\n"
             f"TOC:\n{toc[:1000] if toc else 'None'}\n\n"
             f"Relevant excerpts:\n{chr(10).join(chunks_text)}\n\n"
-            f"Question: {question}\n\n"
+            + (f"Conversation so far (resolve 'this'/'it' against it):\n{conversation}\n\n" if conversation else "")
+            + f"Question: {question}\n\n"
             "Answer comprehensively based on the content above. "
             "Include specific technical details, parameter names, values, "
             "register names, pin numbers, configuration settings, or "
@@ -1348,6 +1376,7 @@ class Pipeline:
         question: str,
         llm_config: LLMConfig | None = None,
         expand_terms: bool = True,
+        conversation: str | None = None,
     ) -> tuple[str, list[dict]]:
         """TOC-first query: route → heading selection → targeted search → expansion → answer.
 
@@ -1390,7 +1419,7 @@ class Pipeline:
         selected = self._select_headings(question, toc_view, menu)
         if not selected:
             # LLM couldn't find relevant headings — fall back
-            return self.query(file_id, question, llm_config)
+            return self.query(file_id, question, llm_config, conversation=conversation)
 
         # Step 2a: spawn search terms — the agent has just read the TOC;
         # it now reasons about the query and emits 3-7 search terms
@@ -1439,7 +1468,7 @@ class Pipeline:
 
         if not matched_chunks:
             # Nothing at all — fall back
-            return self.query(file_id, question, llm_config)
+            return self.query(file_id, question, llm_config, conversation=conversation)
 
         # Step 3: Context expansion
         expanded = self._expand_context(matched_chunks, mappings, file_id)
@@ -1454,7 +1483,9 @@ class Pipeline:
             pass  # learning is best-effort; never break the answer
 
         # Step 4: LLM synthesis
-        answer, citations = self._synthesize(question, expanded, mappings, info, config)
+        answer, citations = self._synthesize(
+            question, expanded, mappings, info, config, conversation=conversation
+        )
 
         return answer, citations
 
@@ -1980,6 +2011,7 @@ class Pipeline:
         mappings: list[dict],
         file_info: dict,
         config: LLMConfig,
+        conversation: str | None = None,
     ) -> tuple[str, list[dict]]:
         """LLM synthesis from expanded context with section-aware citations."""
         # Build context
@@ -1996,6 +2028,14 @@ class Pipeline:
             f"Document: {file_info.get('filename', 'unknown')}",
             f"TOC:\n{toc[:1500] if toc else 'None'}",
             "",
+        ]
+        if conversation:
+            content_parts += [
+                "Conversation so far (resolve references like 'this', 'it', 'the above' against it):",
+                conversation,
+                "",
+            ]
+        content_parts += [
             "Relevant content (with section context):",
             "\n".join(sections_list),
             "",

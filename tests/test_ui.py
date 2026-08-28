@@ -183,6 +183,130 @@ class TestRAGApp:
         app.set_roles("DS")
         assert app._llm_config().thinking_enabled is False
 
+    def test_converter_role_wires_router_converter(self, app):
+        app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        app.add_provider(
+            "Qwen", "qwen/qwen3.5-flash-02-23", "https://openrouter.ai/api/v1", "sk-2",
+            thinking=True,
+        )
+        app.add_provider(
+            "Mini", "openai/gpt-4o-mini", "https://openrouter.ai/api/v1", "sk-3"
+        )
+        app.set_roles("DeepSeek", "Qwen", "Mini")
+        cfg = app._llm_config()
+        assert cfg.router_reasoning is True
+        assert cfg.router_converter_model == "openai/gpt-4o-mini"
+        assert cfg.router_converter_base_url == "https://openrouter.ai/api/v1"
+        assert cfg.router_converter_api_key == "sk-3"
+        from rag_kit._llm import resolve_router_config
+
+        r = resolve_router_config(cfg)
+        assert r is not None
+        assert r.reasoning is True
+        assert r.converter_model == "openai/gpt-4o-mini"
+
+    def test_converter_role_persists(self, tmp_path):
+        p = str(tmp_path / "providers.json")
+        a = RAGApp(db_path=str(tmp_path / "a.db"), settings_path=p)
+        a.add_provider("DS", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        a.add_provider("OR", "x/model", "https://openrouter.ai/api/v1", "sk-2")
+        a.set_roles("DS", "OR", "OR")
+        # converter == search role -> cleared (same model converts itself)
+        assert a.converter_role == ""
+        a.set_roles("DS", "OR", "DS")
+        assert a.converter_role == "DS"
+        b = RAGApp(db_path=str(tmp_path / "b.db"), settings_path=p)
+        assert b.converter_role == "DS"
+
+    def test_followup_question_condensed_before_ask(self, app, monkeypatch):
+        """'give an example to setup this' after an NCO answer must reach
+        the pipeline as a standalone NCO question (context kept)."""
+        import rag_kit._ui as ui
+
+        captured = {}
+
+        def fake_ask(self_, question, file_id=None, mode="standard", **kw):
+            captured["q"] = question
+            return "NCO setup answer", []
+
+        def fake_json(messages, **kw):
+            return {"question": "How do I set up the NCO module on the PIC16F18426?"}
+
+        monkeypatch.setattr(ui, "json_completion", fake_json)
+        monkeypatch.setattr(RAGApp, "ask", fake_ask)
+        history = [
+            {"role": "user", "content": "What is the NCO module?"},
+            {"role": "assistant", "content": "The NCO is a 24-bit accumulator oscillator..."},
+        ]
+        app.chat_turn(history, "give example to setup this")
+        assert "NCO" in captured["q"]
+        assert captured["q"] != "give example to setup this"
+
+    def test_first_turn_passes_question_unchanged(self, app, monkeypatch):
+        """No prior conversation -> no condensing call, question as-is."""
+        import rag_kit._ui as ui
+
+        captured = {}
+        called = {"n": 0}
+
+        def fake_ask(self_, question, file_id=None, mode="standard", **kw):
+            captured["q"] = question
+            return "ok", []
+
+        def fake_json(messages, **kw):
+            called["n"] += 1
+            return {"question": "SHOULD NOT HAPPEN"}
+
+        monkeypatch.setattr(ui, "json_completion", fake_json)
+        monkeypatch.setattr(RAGApp, "ask", fake_ask)
+        app.chat_turn([], "What is a NCO?")
+        assert captured["q"] == "What is a NCO?"
+        assert called["n"] == 0
+
+    def test_condense_failure_keeps_original(self, app, monkeypatch):
+        import rag_kit._ui as ui
+
+        captured = {}
+
+        def fake_ask(self_, question, file_id=None, mode="standard", **kw):
+            captured["q"] = question
+            return "ok", []
+
+        def fake_json(messages, **kw):
+            raise RuntimeError("router down")
+
+        monkeypatch.setattr(ui, "json_completion", fake_json)
+        monkeypatch.setattr(RAGApp, "ask", fake_ask)
+        history = [{"role": "user", "content": "What is the NCO?"},
+                   {"role": "assistant", "content": "NCO is an oscillator."}]
+        app.chat_turn(history, "give example to setup this")
+        assert captured["q"] == "give example to setup this"
+
+    def test_conversation_thread_reaches_ask(self, app, monkeypatch):
+        """The prior thread (as text) must reach the pipeline so synthesis
+        can resolve 'this'/'it' — the 'model didn't know the history'
+        bug."""
+        import rag_kit._ui as ui
+
+        captured = {}
+
+        def fake_ask(self_, question, file_id=None, mode="standard", **kw):
+            captured["conv"] = kw.get("conversation")
+            return "NCO setup steps...", []
+
+        def fake_json(messages, **kw):
+            return {"question": "How do I set up the NCO?"}
+
+        monkeypatch.setattr(ui, "json_completion", fake_json)
+        monkeypatch.setattr(RAGApp, "ask", fake_ask)
+        history = [
+            {"role": "user", "content": "What is the NCO module?"},
+            {"role": "assistant", "content": "The NCO uses a 24-bit accumulator..."},
+        ]
+        app.chat_turn(history, "give example to setup this")
+        assert captured["conv"] is not None
+        assert "NCO" in captured["conv"]
+
     def test_deepseek_provider_maps_model_prefix(self, app):
         # DeepSeek direct API wants "deepseek-v4-flash", not "deepseek/deepseek-v4-flash"
         app.set_llm(
@@ -247,7 +371,7 @@ class TestChatTurn:
 
     def test_citations_not_attached_to_answer(self, app, monkeypatch):
         # ChatGPT-style: answers are plain — no chunk/citation references
-        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
+        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
             "The answer",
             "File #1 chunk 0 (score: 1.00)",
         )
@@ -266,7 +390,7 @@ class TestSummarization:
         return h
 
     def test_no_summary_below_threshold(self, app, monkeypatch):
-        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
+        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
             "ans",
             "",
         )
@@ -276,7 +400,7 @@ class TestSummarization:
         assert len(h) == 14
 
     def test_summary_after_threshold(self, app, monkeypatch):
-        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
+        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
             "ans",
             "",
         )
@@ -289,7 +413,7 @@ class TestSummarization:
         assert any(m["content"] == "q7" for m in h)
 
     def test_summary_persists_across_followups(self, app, monkeypatch):
-        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
+        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
             "ans",
             "",
         )

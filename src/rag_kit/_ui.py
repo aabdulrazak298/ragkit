@@ -15,7 +15,7 @@ import os
 from typing import Any
 
 from rag_kit import LLMConfig, RAGSystem
-from rag_kit._llm import chat_completion
+from rag_kit._llm import chat_completion, json_completion
 
 # Defaults mirrored from _llm.py (kept here so the UI can show them).
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
@@ -63,6 +63,7 @@ class RAGApp:
         self.providers: dict[str, dict[str, str]] = {}
         self.answer_role: str = ""
         self.search_role: str = ""
+        self.converter_role: str = ""
         self._settings_path = settings_path or os.path.expanduser("~/.rag-kit/providers.json")
         self._load_settings()
 
@@ -75,6 +76,7 @@ class RAGApp:
             self.providers = data.get("providers", {})
             self.answer_role = data.get("answer_role", "")
             self.search_role = data.get("search_role", "")
+            self.converter_role = data.get("converter_role", "")
         except (OSError, ValueError):
             pass
 
@@ -87,6 +89,7 @@ class RAGApp:
                         "providers": self.providers,
                         "answer_role": self.answer_role,
                         "search_role": self.search_role,
+                        "converter_role": self.converter_role,
                     },
                     f,
                     indent=2,
@@ -139,13 +142,20 @@ class RAGApp:
     def list_providers(self) -> list[str]:
         return list(self.providers)
 
-    def set_roles(self, answer: str, search: str = "") -> str:
-        """Assign which saved provider powers the answer and search roles.
-        search='' (or 'Same as answer') = one LLM does everything."""
+    def set_roles(self, answer: str, search: str = "", converter: str = "") -> str:
+        """Assign which saved provider powers the answer, search, and
+        converter roles. search='' (or 'Same as answer') = one LLM does
+        everything. converter='' = the search model with thinking off
+        converts its own reasoning output (two-stage chain)."""
         if answer not in self.providers:
             return f"Answer role needs a saved provider (have: {self.list_providers() or 'none'})."
         self.answer_role = answer
         self.search_role = search if search in self.providers and search != answer else ""
+        self.converter_role = (
+            converter
+            if converter in self.providers and converter != self.search_role
+            else ""
+        )
         self._save_settings()
         r = self.providers[answer]["model"]
         s = (
@@ -153,7 +163,12 @@ class RAGApp:
             if self.search_role
             else "search=answer-model"
         )
-        return f"Answer: {answer} ({r}) · {s}"
+        c = (
+            f" · convert={self.providers[self.converter_role]['model']}"
+            if self.converter_role
+            else ""
+        )
+        return f"Answer: {answer} ({r}) · {s}{c}"
 
     @staticmethod
     def _entry_values(
@@ -199,6 +214,16 @@ class RAGApp:
                 cfg.router_api_key = r_key
                 if s_entry.get("thinking") is not None:
                     cfg.router_reasoning = bool(s_entry["thinking"])
+                # Converter: a separate non-reasoning model that turns the
+                # search model's reasoning output into structure (only
+                # matters when router thinking is on). Blank = same router
+                # model, thinking off.
+                c_entry = self.providers.get(self.converter_role)
+                if c_entry:
+                    c_model, c_base, c_key = self._entry_values(c_entry, inherit=s_entry)
+                    cfg.router_converter_model = c_model
+                    cfg.router_converter_base_url = c_base
+                    cfg.router_converter_api_key = c_key
         # Answer-model thinking toggle (None = provider default)
         if a_entry.get("thinking") is not None:
             cfg.thinking_enabled = bool(a_entry["thinking"])
@@ -289,8 +314,11 @@ class RAGApp:
         mode: str = "standard",
         namespace: str | None = None,
         max_loops: int = 4,
+        conversation: str | None = None,
     ) -> tuple[str, str]:
-        """Ask a question. Returns (answer, citations)."""
+        """Ask a question. Returns (answer, citations).
+        conversation: optional prior chat thread — follow-ups resolve
+        pronouns against it (also disables the query cache)."""
         if not question.strip():
             return "Enter a question first.", ""
         if file_id is not None:
@@ -301,7 +329,11 @@ class RAGApp:
                 if not (file_id and file_id.strip().isdigit()):
                     return "Loop mode needs a file selected.", ""
                 result = self.rag.query_loop(
-                    int(file_id), question, max_loops=max_loops, llm_config=cfg
+                    int(file_id),
+                    question,
+                    max_loops=max_loops,
+                    llm_config=cfg,
+                    conversation=conversation,
                 )
             elif mode == "toc":
                 if not (file_id and file_id.strip().isdigit()):
@@ -310,10 +342,16 @@ class RAGApp:
                     result = self.rag.query(question, llm_config=cfg)
                 else:
                     result = self.rag.query(
-                        int(file_id), question, toc_first=True, llm_config=cfg
+                        int(file_id),
+                        question,
+                        toc_first=True,
+                        llm_config=cfg,
+                        conversation=conversation,
                     )
             elif file_id and file_id.strip().isdigit():
-                result = self.rag.query(int(file_id), question, llm_config=cfg)
+                result = self.rag.query(
+                    int(file_id), question, llm_config=cfg, conversation=conversation
+                )
             elif namespace:
                 result = self.rag.query(question, namespace=namespace, llm_config=cfg)
             else:
@@ -350,12 +388,69 @@ class RAGApp:
         if not question or not question.strip():
             return history
         history = self._maybe_summarize(history)
+        # Follow-ups are usually pronoun references ("give an example to
+        # set up this") — retrieval and synthesis would lose the context.
+        # Rewrite into a standalone question via the cheap router model.
+        # Runs BEFORE appending, so the current question is never treated
+        # as prior conversation.
+        search_q = self._condense_question(question, history)
         history.append({"role": "user", "content": question})
-        answer, _citations = self.ask(question, file_id=file_id, mode=mode)
+        # Prior thread as text context for the synthesis (pronoun refs).
+        conv_text = "\n".join(
+            f"{m.get('role')}: {m.get('content', '')[:500]}"
+            for m in history[:-1]
+            if m.get("content")
+        )[-6000:]
+        answer, _citations = self.ask(
+            search_q, file_id=file_id, mode=mode, conversation=conv_text or None
+        )
         history.append({"role": "assistant", "content": answer})
         return history
 
     # ── Conversation memory (FlaskChat-style summarization) ────────────
+
+    def _condense_question(self, question: str, history: list) -> str:
+        """Rewrite a follow-up into a standalone question using the recent
+        conversation, so retrieval and synthesis keep the context
+        ("give an example to set up this" -> "...set up the NCO module").
+        First turn or LLM failure -> the question passes through unchanged.
+        Runs on the router (search-side) model — the cheap one."""
+        prior = [
+            m
+            for m in history
+            if m.get("role") in ("user", "assistant") and m.get("content")
+        ][-6:]  # last few exchanges
+        if not prior or not question or not question.strip():
+            return question
+        conv = "\n".join(f"{m['role']}: {m['content'][:800]}" for m in prior)
+        try:
+            result = json_completion(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You rewrite a follow-up question into a standalone "
+                            "question using the conversation context, so it can be "
+                            "answered without the history. Keep all technical terms "
+                            "(module names, register names, numbers). Output ONLY "
+                            'valid JSON: {"question": "the standalone question"}.'
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Conversation:\n{conv[-12000:]}\n\n"
+                            f"Follow-up question: {question}"
+                        ),
+                    },
+                ],
+                config=self._llm_config(),
+                timeout=60,
+            )
+            q = (result.get("question") or "").strip()
+            return q or question
+        except Exception:
+            return question
 
     def _maybe_summarize(self, history: list) -> list:
         """Once the thread passes SUMMARY_TURNS user turns, collapse
@@ -620,6 +715,15 @@ def build_app(app: RAGApp | None = None) -> Any:
                 choices=["Same as answer"] + app.list_providers(),
                 value=app.search_role or "Same as answer",
             )
+            conv_dd = gr.Dropdown(
+                label="Converter (turns search reasoning into JSON)",
+                info="Only used when the search model's thinking is ON: it answers "
+                "in free text, then this non-reasoning model converts the output "
+                "into structure. 'Same as search' = the search model itself with "
+                "thinking off.",
+                choices=["Same as search (thinking off)"] + app.list_providers(),
+                value=app.converter_role or "Same as search (thinking off)",
+            )
             roles_btn = gr.Button("Save roles")
             roles_status = gr.Markdown()
 
@@ -629,6 +733,7 @@ def build_app(app: RAGApp | None = None) -> Any:
                     gr.update(choices=choices),  # remove dropdown
                     gr.update(choices=choices),  # answer model dropdown
                     gr.update(choices=["Same as answer"] + choices),  # search dropdown
+                    gr.update(choices=["Same as search (thinking off)"] + choices),  # converter
                     _fmt_providers(app),
                 )
 
@@ -643,32 +748,33 @@ def build_app(app: RAGApp | None = None) -> Any:
             def _add(name, model, base, key, preset, thinking):
                 resolved = resolve_provider_base(preset, base)
                 msg = app.add_provider(name, model, resolved, key, thinking=bool(thinking))
-                r1, r2, r3, provs = _refresh_providers()
-                return msg, r1, r2, r3, provs
+                r1, r2, r3, r4, provs = _refresh_providers()
+                return msg, r1, r2, r3, r4, provs
 
             def _remove(name):
                 msg = app.remove_provider(name)
-                r1, r2, r3, provs = _refresh_providers()
-                return msg, r1, r2, r3, provs
+                r1, r2, r3, r4, provs = _refresh_providers()
+                return msg, r1, r2, r3, r4, provs
 
-            def _save_roles(answer, search):
+            def _save_roles(answer, search, converter):
                 search = "" if search == "Same as answer" else search
-                return app.set_roles(answer, search)
+                converter = "" if converter == "Same as search (thinking off)" else converter
+                return app.set_roles(answer, search, converter)
 
             p_preset.change(_on_preset, inputs=p_preset, outputs=p_base)
             add_btn.click(
                 _add,
                 inputs=[p_name, p_model, p_base, p_key, p_preset, p_thinking],
-                outputs=[prov_status, rem_dd, answer_dd, search_dd, prov_list],
+                outputs=[prov_status, rem_dd, answer_dd, search_dd, conv_dd, prov_list],
             )
             rem_btn.click(
                 _remove,
                 inputs=[rem_dd],
-                outputs=[prov_status, rem_dd, answer_dd, search_dd, prov_list],
+                outputs=[prov_status, rem_dd, answer_dd, search_dd, conv_dd, prov_list],
             )
             roles_btn.click(
                 _save_roles,
-                inputs=[answer_dd, search_dd],
+                inputs=[answer_dd, search_dd, conv_dd],
                 outputs=roles_status,
             )
 
@@ -686,6 +792,8 @@ def _fmt_providers(app: RAGApp) -> str:
             role.append("answer")
         if name == app.search_role:
             role.append("search")
+        if name == app.converter_role:
+            role.append("converter")
         tag = f"  [{', '.join(role)}]" if role else ""
         base = entry.get("base_url") or "(env default)"
         key = "key ✓" if entry.get("api_key") else "key via env"

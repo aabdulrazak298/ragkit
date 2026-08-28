@@ -9,6 +9,8 @@ Contract under test:
 5. Embeddings endpoint is overridable via RAGKIT_EMBED_URL.
 """
 
+from dataclasses import replace
+
 from rag_kit._llm import LLMConfig, json_completion, resolve_router_config, router_completion
 from rag_kit._vector_index import _embedding_url
 
@@ -169,3 +171,122 @@ class TestRouterConfig:
         assert resolve_router_config(None) is None
         assert router_completion([{"role": "user", "content": "hi"}]).startswith("[Mock")
         assert json_completion([{"role": "user", "content": "hi"}]) == {}
+
+    def test_router_reasoning_carries_converter(self):
+        """router_reasoning=True + converter triple survive resolution."""
+        cfg = LLMConfig(
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com/v1",
+            api_key="answer-key",
+            router_model="qwen/qwen3.5-flash-02-23",
+            router_base_url=DEFAULT_OR,
+            router_api_key="router-key",
+            router_reasoning=True,
+            router_converter_model="openai/gpt-4o-mini",
+            router_converter_base_url=DEFAULT_OR,
+            router_converter_api_key="conv-key",
+        )
+        r = resolve_router_config(cfg)
+        assert r is not None
+        assert r.reasoning is True
+        assert r.converter_model == "openai/gpt-4o-mini"
+        assert r.converter_base_url == DEFAULT_OR
+        assert r.converter_api_key == "conv-key"
+
+
+class _FakeResp:
+    def __init__(self, content: str):
+        self._content = content
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"choices": [{"message": {"content": self._content}}]}
+
+
+class _FakeClient:
+    """Records payloads; serves scripted contents per call."""
+
+    def __init__(self, contents: list[str]):
+        self.calls: list[dict] = []
+        self._contents = contents
+
+    def post(self, url, headers, json, timeout):
+        self.calls.append(json)
+        return _FakeResp(self._contents[len(self.calls) - 1])
+
+
+def _thinking_cfg() -> LLMConfig:
+    """Main-style config exactly like RAGApp._llm_config() produces:
+    answer slot + router slot with reasoning and converter."""
+    return LLMConfig(
+        model="deepseek-v4-flash",
+        base_url="https://api.deepseek.com/v1",
+        api_key="answer-key",
+        router_model="qwen/qwen3.5-flash-02-23",
+        router_base_url=DEFAULT_OR,
+        router_api_key="router-key",
+        router_reasoning=True,
+        router_converter_model="openai/gpt-4o-mini",
+        router_converter_base_url=DEFAULT_OR,
+        router_converter_api_key="conv-key",
+    )
+
+
+class TestTwoStageChain:
+    """reasoning=True on OpenRouter -> the reasoning model answers in free
+    text, then a NON-reasoning converter emits the strict structure."""
+
+    def test_json_completion_two_stage(self, monkeypatch):
+        fake = _FakeClient(
+            [
+                "The oscillator module has clock sources 8.2.1 and 8.2.2.",
+                '{"selected_headings": ["8. OSC - Oscillator Module > 8.2. Clock Source Types"]}',
+            ]
+        )
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        result = json_completion(
+            [{"role": "user", "content": "Select headings"}], config=_thinking_cfg()
+        )
+        assert result["selected_headings"][0].startswith("8. OSC")
+        # Stage 1: reasoning ON, plain chat (no response_format)
+        assert fake.calls[0]["reasoning"] == {"enabled": True}
+        assert "response_format" not in fake.calls[0]
+        # Stage 2: converter model, reasoning OFF, json_object, instruction
+        assert fake.calls[1]["model"] == "openai/gpt-4o-mini"
+        assert fake.calls[1]["reasoning"] == {"enabled": False}
+        assert fake.calls[1]["response_format"] == {"type": "json_object"}
+        assert fake.calls[1]["messages"][-1]["content"].startswith("Convert the above")
+
+    def test_router_completion_two_stage(self, monkeypatch):
+        fake = _FakeClient(["The question asks how to configure hardware.", "TECHNICAL"])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        verdict = router_completion(
+            [{"role": "user", "content": "How do I configure the oscillator?"}],
+            config=_thinking_cfg(),
+        )
+        assert verdict == "TECHNICAL"
+        assert fake.calls[0]["reasoning"] == {"enabled": True}
+        assert fake.calls[1]["model"] == "openai/gpt-4o-mini"
+        assert fake.calls[1]["reasoning"] == {"enabled": False}
+        assert "verdict" in fake.calls[1]["messages"][-1]["content"]
+
+    def test_auto_converter_is_same_model_thinking_off(self, monkeypatch):
+        cfg = replace(_thinking_cfg(), router_converter_model=None)
+        fake = _FakeClient(["reasoning text here", '{"ok": true}'])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        result = json_completion(
+            [{"role": "user", "content": "hi"}], config=cfg
+        )
+        assert result == {"ok": True}
+        assert fake.calls[1]["model"] == "qwen/qwen3.5-flash-02-23"
+        assert fake.calls[1]["reasoning"] == {"enabled": False}
+
+    def test_thinking_off_stays_single_call(self, monkeypatch):
+        cfg = replace(_thinking_cfg(), router_reasoning=False)
+        fake = _FakeClient(['{"ok": true}'])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        assert json_completion([{"role": "user", "content": "hi"}], config=cfg) == {"ok": True}
+        assert len(fake.calls) == 1
+        assert fake.calls[0]["reasoning"] == {"enabled": False}

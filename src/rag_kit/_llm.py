@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import httpx
@@ -73,8 +73,20 @@ class LLMConfig:
     router_api_key: str | None = None
     # Router thinking toggle (OpenRouter `reasoning.enabled`). None =
     # disabled by default on OpenRouter (thinking models return garbage
-    # JSON/verdict prose); True = let the router model think.
+    # JSON/verdict prose); True = let the router model think, then have a
+    # NON-reasoning converter turn the reasoning output into structure.
     router_reasoning: bool | None = None
+    # Converter for the two-stage chain: when the router thinks, this
+    # non-reasoning model converts the free-text reasoning output into
+    # strict JSON. Blank = same router model with reasoning off.
+    router_converter_model: str | None = None
+    router_converter_base_url: str | None = None
+    router_converter_api_key: str | None = None
+    # Resolved router config: the converter triple for the two-stage chain
+    # (see resolve_router_config). Blank = same router model, reasoning off.
+    converter_model: str | None = None
+    converter_base_url: str | None = None
+    converter_api_key: str | None = None
 
     def __post_init__(self):
         # Universal OpenAI-compatible support:
@@ -416,6 +428,9 @@ def resolve_router_config(config: LLMConfig | None) -> LLMConfig | None:
             api_key=config.router_api_key or config.api_key,
             temperature=0.1,
             reasoning=config.router_reasoning,
+            converter_model=config.router_converter_model,
+            converter_base_url=config.router_converter_base_url,
+            converter_api_key=config.router_converter_api_key,
         )
     if config is not None and config.api_key:
         return LLMConfig(
@@ -430,6 +445,63 @@ def resolve_router_config(config: LLMConfig | None) -> LLMConfig | None:
     return None
 
 
+def _post_chat(cfg: LLMConfig, payload: dict, timeout: int) -> str:
+    """POST a chat-completion payload; return the message content."""
+    resp = _get_client().post(
+        f"{cfg.base_url}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {cfg.api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
+
+
+def _router_thinks(cfg: LLMConfig) -> bool:
+    """Two-stage chain needed? Only OpenRouter models are affected — their
+    json_object mode returns bare garbage floats when reasoning is on, so a
+    NON-reasoning converter turns the free-text reasoning output into
+    structure."""
+    return cfg.reasoning is True and bool(cfg.base_url) and "openrouter.ai" in cfg.base_url
+
+
+def _convert_cfg(cfg: LLMConfig) -> LLMConfig:
+    """The converter endpoint: an explicit converter triple when set, else
+    the same router model with reasoning off."""
+    if cfg.converter_model:
+        return replace(
+            cfg,
+            model=cfg.converter_model,
+            base_url=cfg.converter_base_url or cfg.base_url,
+            api_key=cfg.converter_api_key or cfg.api_key,
+            reasoning=False,
+        )
+    return replace(cfg, reasoning=False)
+
+
+def _convert_messages(messages: list[dict], thought: str, kind: str) -> list[dict]:
+    """Append the reasoning output + conversion instruction."""
+    if kind == "json":
+        instruction = (
+            "Convert the above reasoning output into the required structured JSON. "
+            "Output ONLY valid JSON."
+        )
+    else:
+        instruction = (
+            "Convert the above reasoning output into your final verdict. "
+            "Output ONLY the verdict."
+        )
+    return [
+        *messages,
+        {"role": "assistant", "content": thought},
+        {"role": "user", "content": instruction},
+    ]
+
+
 def router_completion(
     messages: list[dict],
     timeout: int = 60,
@@ -439,6 +511,9 @@ def router_completion(
 
     Uses the resolved router model (see resolve_router_config) — a
     separate cheap model when configured, the answer model otherwise.
+    Thinking router models (router_reasoning=True on OpenRouter) run the
+    two-stage chain: reason in free text, then a non-reasoning converter
+    emits the verdict.
     """
     cfg = resolve_router_config(config)
     if cfg is None:
@@ -454,22 +529,39 @@ def router_completion(
     # verdict (and their json_object mode returns bare garbage floats)
     # unless reasoning is disabled. Default: off on OpenRouter; an explicit
     # user toggle (router_reasoning) wins.
+    if _router_thinks(cfg):
+        think = {**payload, "reasoning": {"enabled": True}}
+        thought = _post_chat(cfg, think, timeout)
+        convert = {
+            **payload,
+            "model": (cfg.converter_model or cfg.model),
+            "reasoning": {"enabled": False},
+            "messages": _convert_messages(messages, thought, "verdict"),
+        }
+        return _post_chat(_convert_cfg(cfg), convert, timeout)
     if cfg.reasoning is not None:
         payload["reasoning"] = {"enabled": cfg.reasoning}
     elif cfg.base_url and "openrouter.ai" in cfg.base_url:
         payload["reasoning"] = {"enabled": False}
-    resp = _get_client().post(
-        f"{cfg.base_url}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {cfg.api_key}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    return _post_chat(cfg, payload, timeout)
+
+
+def _parse_json(text: str) -> dict:
+    """Parse a completion's content as JSON, with graceful fallbacks:
+    markdown code fences, then any balanced {...} block (thinking models
+    embed JSON in prose)."""
+    import re
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        return {}
 
 
 def json_completion(
@@ -483,6 +575,9 @@ def json_completion(
     Returns parsed JSON dict. Uses the resolved router model by default
     (see resolve_router_config); an explicit `model` overrides it.
     Add \"Output ONLY valid JSON.\" to the prompt.
+    Thinking router models (router_reasoning=True on OpenRouter) run the
+    two-stage chain: the reasoning model answers in free text, then a
+    NON-reasoning converter emits the strict JSON.
     """
     cfg = resolve_router_config(config)
     if cfg is None:
@@ -498,36 +593,22 @@ def json_completion(
     # qwen3.5-* thinking models: json_object mode alone returns bare
     # garbage floats ("-1.0000...") unless reasoning is disabled.
     # Default: off on OpenRouter; an explicit user toggle wins.
+    if _router_thinks(cfg):
+        think = {**payload, "reasoning": {"enabled": True}}
+        think.pop("response_format", None)  # thinking models: plain chat
+        thought = _post_chat(cfg, think, timeout)
+        convert = {
+            **payload,
+            "model": cfg.converter_model or payload["model"],
+            "reasoning": {"enabled": False},
+            "messages": _convert_messages(messages, thought, "json"),
+        }
+        return _parse_json(_post_chat(_convert_cfg(cfg), convert, timeout))
     if cfg.reasoning is not None:
         payload["reasoning"] = {"enabled": cfg.reasoning}
     elif cfg.base_url and "openrouter.ai" in cfg.base_url:
         payload["reasoning"] = {"enabled": False}
-    resp = _get_client().post(
-        f"{cfg.base_url}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {cfg.api_key}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    text = data["choices"][0]["message"]["content"]
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # Try to extract JSON from markdown code block, then from any
-        # balanced {...} block (thinking models embed JSON in prose).
-        import re
-
-        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-        if match:
-            return json.loads(match.group(1))
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-        return {}
+    return _parse_json(_post_chat(cfg, payload, timeout))
 
 
 def _mock_answer(messages: list[dict]) -> str:
