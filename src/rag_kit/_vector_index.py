@@ -19,8 +19,15 @@ from rag_kit._llm import _get_client
 from rag_kit._local_embed import embed_texts as _local_embed_texts
 from rag_kit._local_embed import is_model_available
 
-EMBEDDING_URL = "https://openrouter.ai/api/v1/embeddings"
+EMBEDDING_URL_DEFAULT = "https://openrouter.ai/api/v1/embeddings"
 DEFAULT_EMBED_MODEL = "qwen/qwen3-embedding-8b"
+
+
+def _embedding_url() -> str:
+    """Embeddings endpoint — override with RAGKIT_EMBED_URL (any OpenAI-compatible)."""
+    return os.environ.get("RAGKIT_EMBED_URL", EMBEDDING_URL_DEFAULT)
+
+
 DEFAULT_BIT_WIDTH = 4
 DEFAULT_INDEX_DIR = os.path.expanduser("~/.rag-kit/vectors/")
 
@@ -96,7 +103,7 @@ class VectorIndex:
             return _local_embed_texts(texts)
 
         resp = _get_client().post(
-            EMBEDDING_URL,
+            _embedding_url(),
             headers={
                 "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",

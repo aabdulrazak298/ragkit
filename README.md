@@ -132,7 +132,34 @@ pip install "rag-kit[all]"
 ## Requirements
 
 - Python 3.10+
-- An API key for the synthesis LLM: `OPENROUTER_KEY` (or DeepSeek direct)
+
+## LLM Providers
+
+rag-kit speaks plain OpenAI-compatible HTTP — plug in any provider:
+
+- **OpenRouter** (default): set `OPENROUTER_KEY`
+- **DeepSeek direct**: any model prefixed `deepseek/` routes to
+  `https://api.deepseek.com/v1` automatically (set `DEEPSEEK_API_KEY`)
+- **Any OpenAI-compatible endpoint** (vLLM, Ollama `/v1`, LM Studio, your own
+  proxy): pass `base_url` explicitly, or set `RAGKIT_BASE_URL` (falls back to
+  `OPENAI_BASE_URL`). Keys resolve to `OPENAI_API_KEY` first, then
+  `OPENROUTER_KEY`:
+
+```python
+from rag_kit import RAGSystem, LLMConfig
+
+rag = RAGSystem()
+rag.set_llm_config(LLMConfig(
+    model="your-model",
+    base_url="https://your-llm-proxy.example/v1",  # or RAGKIT_BASE_URL env
+    api_key="sk-...",                                # or OPENAI_API_KEY env
+))
+```
+
+An explicitly passed `base_url` is always honored — auto-detection never
+overrides it. Embeddings: OpenRouter by default, or set `RAGKIT_EMBED_URL`
+for an OpenAI-compatible embeddings endpoint (local MiniLM is the
+zero-API-cost alternative via `embed_backend="local"`).
 
 ## License
 

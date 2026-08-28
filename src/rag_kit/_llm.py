@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 _DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
+DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Cheap router model for question routing and heading selection
 ROUTER_MODEL = "google/gemini-2.5-flash-lite"  # Fast, cheap, good enough for classification; honors json_object (verified 2026-08-26; the old 2.0-flash-lite-001 was retired -> 404)
@@ -54,7 +55,7 @@ class LLMConfig:
 
     api_key: str | None = None
     model: str = _DEFAULT_MODEL
-    base_url: str = "https://openrouter.ai/api/v1"
+    base_url: str = DEFAULT_BASE_URL
     temperature: float = 0.1
     reasoning_effort: str | None = None  # "high", "max" — DeepSeek thinking effort
     thinking_enabled: bool = True  # DeepSeek: thinking mode on/off (default: on for V4)
@@ -62,8 +63,16 @@ class LLMConfig:
     max_tokens: int | None = None  # output cap; None = provider default (unbounded)
 
     def __post_init__(self):
-        # Auto-detect provider from model prefix (always, not just when api_key is None)
-        if self.model.startswith("deepseek/"):
+        # Universal OpenAI-compatible support:
+        # 1. An explicitly passed base_url is ALWAYS honored — never stomped.
+        # 2. RAGKIT_BASE_URL / OPENAI_BASE_URL fill in when no base_url given.
+        # 3. deepseek/ auto-routing to DeepSeek direct fires ONLY on the default.
+        if self.base_url == DEFAULT_BASE_URL:
+            env_base = os.environ.get("RAGKIT_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+            if env_base:
+                self.base_url = env_base.rstrip("/")
+
+        if self.model.startswith("deepseek/") and self.base_url == DEFAULT_BASE_URL:
             self.base_url = (
                 os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/") + "/v1"
             )
@@ -75,8 +84,10 @@ class LLMConfig:
                     "OPENROUTER_KEY", ""
                 )
             else:
-                self.api_key = os.environ.get("OPENROUTER_KEY") or os.environ.get(
-                    "OPENAI_API_KEY", ""
+                # Custom endpoints are OpenAI-compatible: OPENAI_API_KEY first,
+                # OpenRouter as a last-resort fallback.
+                self.api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get(
+                    "OPENROUTER_KEY", ""
                 )
 
     @staticmethod
