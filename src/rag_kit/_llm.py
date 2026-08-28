@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -474,6 +475,53 @@ def _post_chat(cfg: LLMConfig, payload: dict, timeout: int) -> str:
     return _post_chat_message(cfg, payload, timeout).get("content") or ""
 
 
+_TEXT_TOOL_RE = re.compile(
+    r"<tool_calls>\s*<invoke name=\"([^\"]+)\">(.*?)</invoke>\s*</tool_calls>",
+    re.DOTALL,
+)
+_PARAM_RE = re.compile(r"<parameter name=\"([^\"]+)\">(.*?)</parameter>", re.DOTALL)
+
+
+def _has_text_tool_block(content: str) -> bool:
+    """Does the content carry a literal <tool_calls> XML block?"""
+    low = content.lower()
+    return "<tool_calls" in low or "</tool_calls>" in low or "<invoke name=" in low
+
+
+def _extract_text_tool_calls(content: str) -> list[dict]:
+    """Parse literal <tool_calls> XML blocks out of a completion's text.
+
+    Some models (DeepSeek in particular) occasionally write tool calls as
+    visible XML instead of structured tool_calls — turning them into the
+    structured form lets the loop execute them like real calls.
+    """
+    calls = []
+    for i, m in enumerate(_TEXT_TOOL_RE.finditer(content)):
+        name = m.group(1).strip()
+        body = m.group(2)
+        args: dict[str, Any] = {}
+        try:
+            parsed = json.loads(body)
+            if isinstance(parsed, dict):
+                args = parsed
+        except json.JSONDecodeError:
+            for pm in _PARAM_RE.finditer(body):
+                args[pm.group(1)] = pm.group(2).strip()
+        calls.append(
+            {
+                "id": f"txt_call_{i}",
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(args)},
+            }
+        )
+    return calls
+
+
+def _strip_text_tool_calls(content: str) -> str:
+    """Remove literal <tool_calls> blocks from a completion's text."""
+    return _TEXT_TOOL_RE.sub("", content).strip()
+
+
 def chat_completion_tools(
     messages: list[dict],
     config: LLMConfig,
@@ -516,15 +564,37 @@ def chat_completion_tools(
             "tool_choice": "auto",
             **extra,
         }
-        try:
-            msg = _post_chat_message(config, payload, timeout)
-        except Exception:
-            # No tool support (or transient error) — retry as plain chat.
-            plain = {k: v for k, v in payload.items() if k not in ("tools", "tool_choice")}
-            return _post_chat(config, plain, timeout), log
-        tool_calls = msg.get("tool_calls") or []
+        # Literal-tool-call leak detection: some models (DeepSeek) write
+        # the call as visible <tool_calls> XML instead of the structured
+        # tools parameter. Nudge and retry the round (max 2), so the
+        # model either calls the tool properly or answers directly.
+        leak_retries = 0
+        while True:
+            try:
+                msg = _post_chat_message(config, payload, timeout)
+            except Exception:
+                # No tool support (or transient error) — retry as plain chat.
+                plain = {k: v for k, v in payload.items() if k not in ("tools", "tool_choice")}
+                return _post_chat(config, plain, timeout), log
+            tool_calls = msg.get("tool_calls") or []
+            content = msg.get("content") or ""
+            if tool_calls or not _has_text_tool_block(content) or leak_retries >= 2:
+                break
+            msgs.append({"role": "assistant", "content": content})
+            msgs.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "You wrote a tool call as literal text instead of using "
+                        "the tools parameter. Call the tool properly if you need "
+                        "more content, or answer directly now — never output XML."
+                    ),
+                }
+            )
+            leak_retries += 1
         if not tool_calls:
-            return msg.get("content") or "", log
+            # Defensive: never return a raw tool-call block as the answer.
+            return _strip_text_tool_calls(content), log
         used_calls += len(tool_calls)
         msgs.append(
             {

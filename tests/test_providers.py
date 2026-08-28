@@ -523,3 +523,52 @@ class TestToolChat:
         forced = fake.calls[1]
         assert "tools" not in forced and "tool_choice" not in forced
         assert "STOP searching" in forced["messages"][-1]["content"]
+
+    def test_literal_xml_tool_call_triggers_retry(self, monkeypatch):
+        """Models sometimes write the tool call as visible <tool_calls>
+        XML text instead of the structured tools parameter — detected,
+        nudged, and the round retried (never shown to the user)."""
+        leaky_msg = {
+            "role": "assistant",
+            "content": (
+                '<tool_calls>\n<invoke name="search_documents">\n'
+                '<parameter name="query">"T2CON" "T2CLKCON" register bits CKPS OUTPS</parameter>\n'
+                "</invoke>\n</tool_calls>"
+            ),
+        }
+        final_msg = {"role": "assistant", "content": "Timer2 prescaler is set via CKPS[2:0]."}
+        fake = _FakeMsgClient([leaky_msg, final_msg])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        calls: list[tuple] = []
+
+        def executor(name, args):
+            calls.append((name, args))
+            return "T2CON CKPS[2:0] bits"
+
+        answer, log = chat_completion_tools(
+            [{"role": "user", "content": "timer2 setup"}], _tool_cfg(), [], executor
+        )
+        assert answer == "Timer2 prescaler is set via CKPS[2:0]."
+        # the leaky block was NOT executed as a tool call
+        assert calls == []
+        assert log == []
+        # round 2 carried the nudge so the model could answer properly
+        assert "literal text" in fake.calls[1]["messages"][-1]["content"]
+        assert "<tool_calls" not in answer
+
+    def test_persistent_leak_stripped_after_retries(self, monkeypatch):
+        """Defensive: if the model keeps leaking after 2 nudges, the block
+        is stripped before returning — raw XML never reaches the user."""
+        leaky = {
+            "role": "assistant",
+            "content": 'Intro text <tool_calls><invoke name="get_toc"></invoke></tool_calls>',
+        }
+        fake = _FakeMsgClient([leaky, leaky, leaky])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        answer, log = chat_completion_tools(
+            [{"role": "user", "content": "q"}], _tool_cfg(), [], lambda name, args: "toc"
+        )
+        assert answer == "Intro text"
+        assert log == []
+        # two nudges happened (3 total API calls)
+        assert len(fake.calls) == 3
