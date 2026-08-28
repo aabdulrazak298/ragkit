@@ -949,8 +949,25 @@ def build_app(app: RAGApp | None = None) -> Any:
             roles_btn = gr.Button("Save roles")
             roles_status = gr.Markdown()
 
+            def _snapshot_config():
+                """Gradio snapshots the page config at launch; after any
+                settings save, rebuild it so a browser refresh serves the
+                saved values instead of the launch-time ones."""
+                try:
+                    demo.config = demo.get_config_file()
+                except Exception:
+                    pass  # best-effort; the in-memory app stays correct
+
             def _refresh_providers():
                 choices = app.list_providers()
+                # Sync the served config so a browser REFRESH shows the
+                # saved state (gradio snapshots config at launch).
+                rem_dd.choices = choices
+                answer_dd.choices = choices
+                search_dd.choices = ["Same as answer"] + choices
+                conv_dd.choices = ["Same as search (thinking off)"] + choices
+                prov_list.value = _fmt_providers(app)
+                _snapshot_config()
                 return (
                     gr.update(choices=choices),  # remove dropdown
                     gr.update(choices=choices),  # answer model dropdown
@@ -981,7 +998,12 @@ def build_app(app: RAGApp | None = None) -> Any:
             def _save_roles(answer, search, converter):
                 search = "" if search == "Same as answer" else search
                 converter = "" if converter == "Same as search (thinking off)" else converter
-                return app.set_roles(answer, search, converter)
+                msg = app.set_roles(answer, search, converter)
+                answer_dd.value = answer
+                search_dd.value = search or "Same as answer"
+                conv_dd.value = converter or "Same as search (thinking off)"
+                _snapshot_config()
+                return msg
 
             p_preset.change(_on_preset, inputs=p_preset, outputs=p_base)
             add_btn.click(
@@ -1050,7 +1072,14 @@ def build_app(app: RAGApp | None = None) -> Any:
                     persona = custom or ""
                 else:
                     persona = PERSONALITY_PRESETS.get(label, "")
-                return app.set_answerer(temperature, top_p, persona)
+                msg = app.set_answerer(temperature, top_p, persona)
+                # Sync the served config so a refresh shows the saved state.
+                a_persona_dd.value = label
+                a_persona_custom.value = custom or ""
+                a_temp.value = temperature
+                a_topp.value = top_p
+                _snapshot_config()
+                return msg
 
             a_persona_dd.change(_on_persona, inputs=a_persona_dd, outputs=a_persona_custom)
             a_save.click(
