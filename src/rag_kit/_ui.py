@@ -302,6 +302,14 @@ def build_app(app: RAGApp | None = None) -> Any:
 
     app = app or RAGApp()
 
+    # KaTeX delimiters: default Gradio only renders $$...$$; datasheet
+    # answers come back as \[...\] (and sometimes inline $...$) too.
+    latex_delimiters = [
+        {"left": "$$", "right": "$$", "display": True},
+        {"left": r"\[", "right": r"\]", "display": True},
+        {"left": "$", "right": "$", "display": False},
+    ]
+
     with gr.Blocks(title="rag-kit") as demo:
         gr.Markdown(
             "# rag-kit\n"
@@ -324,7 +332,9 @@ def build_app(app: RAGApp | None = None) -> Any:
                         label="Mode",
                         info="toc: TOC-first navigation (default) · standard: single retrieval · loop: iterative verification",
                     )
-                chatbot = gr.Chatbot(label="rag-kit", height=480)
+                chatbot = gr.Chatbot(
+                    label="rag-kit", height=480, latex_delimiters=latex_delimiters
+                )
                 with gr.Row():
                     question_tb = gr.Textbox(
                         label="",
