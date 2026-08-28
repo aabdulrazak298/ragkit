@@ -91,6 +91,37 @@ class TestRAGApp:
         assert cfg.base_url
 
 
+class TestChatTurn:
+    def test_first_turn_appends_messages(self, app, doc):
+        _, fid = app.load_file(doc)
+        history = app.chat_turn([], "what pressure does the relief valve open at?", file_id=fid)
+        assert len(history) == 2
+        assert history[0]["role"] == "user"
+        assert history[0]["content"] == "what pressure does the relief valve open at?"
+        assert history[1]["role"] == "assistant"
+        assert history[1]["content"].strip()  # reply present (mock or real)
+
+    def test_followup_keeps_history(self, app, doc):
+        _, fid = app.load_file(doc)
+        h1 = app.chat_turn([], "first question", file_id=fid)
+        h2 = app.chat_turn(h1, "second question", file_id=fid)
+        assert len(h2) == 4
+        assert h2[:2] == h1  # first exchange intact
+        assert h2[2]["content"] == "second question"
+
+    def test_blank_question_ignored(self, app):
+        history = app.chat_turn([], "   ", file_id=None)
+        assert history == []
+
+    def test_citations_attached_to_answer(self, app, monkeypatch):
+        app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4: (
+            "The answer",
+            "File #1 chunk 0 (score: 1.00)",
+        )
+        history = app.chat_turn([], "q", file_id="1")
+        assert "File #1 chunk 0" in history[1]["content"]
+
+
 class TestProviderPresets:
     def test_known_providers_fill_base_url(self):
         assert resolve_provider_base("OpenRouter", "typed") == "https://openrouter.ai/api/v1"

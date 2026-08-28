@@ -172,6 +172,29 @@ class RAGApp:
             citations = "\n".join(lines)
         return result.answer, citations
 
+    def chat_turn(
+        self,
+        history: list,
+        question: str,
+        file_id: str | None = None,
+        mode: str = "standard",
+    ) -> list:
+        """ChatGPT-style turn: append the user and assistant messages.
+
+        history is a list of message dicts ({'role': ..., 'content': ...},
+        the Gradio 6 Chatbot format). Returns the new history (input
+        untouched for blank questions).
+        """
+        history = [dict(m) for m in (history or [])]
+        if not question or not question.strip():
+            return history
+        answer, citations = self.ask(question, file_id=file_id, mode=mode)
+        if citations:
+            answer = f"{answer}\n\n---\n📎 {citations}"
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": answer})
+        return history
+
 
 def build_app(app: RAGApp | None = None) -> Any:
     """Build the Gradio Blocks app. ImportError if gradio isn't installed."""
@@ -191,8 +214,8 @@ def build_app(app: RAGApp | None = None) -> Any:
             "ask questions — everything stays on your machine."
         )
 
-        # ── Ask tab ────────────────────────────────────────────────────
-        with gr.Tab("Ask"):
+        # ── Chat tab (ChatGPT-style) ───────────────────────────────────
+        with gr.Tab("Chat"):
             with gr.Row():
                 file_dd = gr.Dropdown(
                     label="File (optional — leave blank for cross-file)",
@@ -205,21 +228,33 @@ def build_app(app: RAGApp | None = None) -> Any:
                     label="Mode",
                     info="standard: single retrieval · toc: TOC-first navigation · loop: iterative verification",
                 )
-            question_tb = gr.Textbox(label="Question", lines=2)
-            ask_btn = gr.Button("Ask", variant="primary")
-            answer_md = gr.Markdown(label="Answer")
-            citations_md = gr.Markdown(label="Citations")
+            chatbot = gr.Chatbot(label="rag-kit", height=480)
+            with gr.Row():
+                question_tb = gr.Textbox(
+                    label="",
+                    placeholder="Ask about your documents…",
+                    scale=6,
+                    container=False,
+                )
+                send_btn = gr.Button("Send", variant="primary", scale=1)
+            new_btn = gr.Button("New chat")
 
-            def _ask(question, file_choice, mode):
+            def _chat(chat_value, question, file_choice, mode):
                 file_id = _extract_id(file_choice)
-                answer, citations = app.ask(question, file_id=file_id, mode=mode)
-                return answer, citations or "_no citations_"
+                new_history = app.chat_turn(chat_value, question, file_id=file_id, mode=mode)
+                return new_history, ""
 
-            ask_btn.click(
-                _ask,
-                inputs=[question_tb, file_dd, mode_rd],
-                outputs=[answer_md, citations_md],
+            send_btn.click(
+                _chat,
+                inputs=[chatbot, question_tb, file_dd, mode_rd],
+                outputs=[chatbot, question_tb],
             )
+            question_tb.submit(
+                _chat,
+                inputs=[chatbot, question_tb, file_dd, mode_rd],
+                outputs=[chatbot, question_tb],
+            )
+            new_btn.click(lambda: [], outputs=[chatbot])
 
         # ── Search tab ─────────────────────────────────────────────────
         with gr.Tab("Search"):
