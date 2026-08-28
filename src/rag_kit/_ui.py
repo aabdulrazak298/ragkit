@@ -140,6 +140,8 @@ class RAGApp:
         """Ask a question. Returns (answer, citations)."""
         if not question.strip():
             return "Enter a question first.", ""
+        if file_id is not None:
+            file_id = str(file_id)  # load_file() returns int; UI passes str
         try:
             cfg = self._llm_config()
             if mode == "loop":

@@ -109,6 +109,16 @@ class TestChatTurn:
         assert h2[:2] == h1  # first exchange intact
         assert h2[2]["content"] == "second question"
 
+    def test_int_file_id_accepted(self, app, doc):
+        # load_file() on the underlying RAGSystem returns an int; the chat
+        # path must not crash on it ('.strip' on int).
+        msg, _ = app.load_file(doc)
+        fid = app.rag.load_file(doc)  # int, the README-style usage
+        assert isinstance(fid, int)
+        history = app.chat_turn([], "what pressure does the relief valve open at?", file_id=fid)
+        assert len(history) == 2
+        assert history[1]["content"].strip()
+
     def test_blank_question_ignored(self, app):
         history = app.chat_turn([], "   ", file_id=None)
         assert history == []
