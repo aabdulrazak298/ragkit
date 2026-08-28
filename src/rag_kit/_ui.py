@@ -250,13 +250,38 @@ class RAGApp:
             return ""
 
 
-# Keep the chat column a readable width on widescreen monitors.
+# Chat column: readable width, fills the viewport height. The chatbot
+# block flexes to the remaining space and scrolls INTERNALLY, so the page
+# never scrolls — the "two vertical sliders" were the chatbot's own
+# scrollbar (fixed 480px + overflow:auto) plus the page scrollbar.
+# Header + tab bar measure ~152px (Gradio 6.26); 165px leaves slack so
+# font drift never re-creates the page scrollbar.
 # Gradio 6: pass to launch(css=...) — Blocks() no longer accepts it.
 CHAT_CSS = """
+.gradio-container {
+    height: 100vh;          /* never let the page scroll — chat owns scrolling */
+    overflow: hidden;
+}
+.gradio-container footer {
+    display: none;          /* drop Gradio's "Show API" footer noise */
+}
 #chat-col {
-    max-width: 900px;
+    max-width: 990px;
     margin-left: auto;
     margin-right: auto;
+    height: calc(100vh - 165px);
+    display: flex;
+    flex-direction: column;
+}
+#chat-col > .block {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto !important;
+    overflow: hidden !important;
+}
+#chat-col > .block > .wrap {
+    height: 100%;
+    overflow-y: auto;
 }
 """
 
