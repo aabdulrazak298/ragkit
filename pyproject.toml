@@ -31,7 +31,7 @@ dependencies = [
     "httpx>=0.27",
     "turbovec>=0.7",
     "numpy>=1.24",
-    "flashrank>=0.4",
+    "flashrank>=0.2",
 ]
 
 [project.optional-dependencies]
