@@ -33,11 +33,16 @@ print(result.answer)
   retrieval with a cheap sufficiency verifier), agentic
   (planner→executor→synthesizer), TOC-first (maps questions to document
   sections)
-- **Self-learning TOC** — every chunk the AI examines teaches the menu a
-  heading (even when the search finds no answer); headings are
-  deterministic (free) by default or AI-generated with
-  `toc_ai_headings=True` (one batched router-model call per query for
-  meaningful, structured labels)
+- **Self-learning TOC (AI-only)** — with `toc_ai_headings=True`, every
+  chunk the AI processes teaches the menu a meaningful heading (one
+  batched router-model call per query). Default off: the deterministic
+  first-line heuristic is disabled because it wrote junk headings on
+  datasheets ("One pin is input-only") — the TOC stays exactly as
+  extracted at load time
+- **PDF bookmarks become the TOC** — datasheets/manuals with an embedded
+  outline (Microchip, TI...) get their real section hierarchy instead of
+  first-line noise: `PIC16F18426.pdf` → "Flexible Oscillator Structure",
+  "1. Device Overview → 1.1 New Core Features → …"
 - **Deterministic and cheap** — retrieval is local; LLM only synthesizes the answer
 - **SQLite-only storage** — FTS5 indexes, blake3 dedup, namespaces, LRU eviction
 - **Built-in metrics** — QueryMetrics tracks latency, turns, dedups, escalations

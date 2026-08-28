@@ -95,21 +95,32 @@ class RAGApp:
         except OSError:
             pass  # settings persistence is best-effort
 
-    def add_provider(self, name: str, model: str, base_url: str, api_key: str) -> str:
+    def add_provider(
+        self,
+        name: str,
+        model: str,
+        base_url: str,
+        api_key: str,
+        thinking: bool | None = None,
+    ) -> str:
         """Add or replace a named provider endpoint. Blank model = default;
         blank base URL auto-fills for known providers (OpenRouter, DeepSeek,
-        OpenAI) by name."""
+        OpenAI) by name. thinking: model thinking/reasoning toggle —
+        None = provider default (router calls default to off on OpenRouter)."""
         name = (name or "").strip()
         if not name:
             return "Provider name is required."
         base_url = (base_url or "").strip()
         if not base_url:
             base_url = PROVIDER_PRESETS.get(name, "")
-        self.providers[name] = {
+        entry: dict[str, Any] = {
             "model": (model or "").strip() or DEFAULT_MODEL,
             "base_url": base_url,
             "api_key": (api_key or "").strip(),
         }
+        if thinking is not None:
+            entry["thinking"] = bool(thinking)
+        self.providers[name] = entry
         self._save_settings()
         return f"Saved provider '{name}'."
 
@@ -146,7 +157,7 @@ class RAGApp:
 
     @staticmethod
     def _entry_values(
-        entry: dict[str, str], inherit: dict[str, str] | None = None
+        entry: dict[str, Any], inherit: dict[str, Any] | None = None
     ) -> tuple[str, str | None, str | None]:
         """(model, base_url, api_key) for a provider entry, with blanks
         inherited from another entry. Blanks stay None (env-resolved later
@@ -177,6 +188,8 @@ class RAGApp:
         # Search-side role: separate provider when chosen, else the answer
         # model handles routing/headings/expansion/verifier too. Blank
         # router sub-fields inherit from the answer provider (not env).
+        # Thinking: each provider's toggle; router defaults to off on
+        # OpenRouter (thinking models break structured JSON).
         if self.search_role and self.search_role != self.answer_role:
             s_entry = self.providers.get(self.search_role)
             if s_entry:
@@ -184,6 +197,11 @@ class RAGApp:
                 cfg.router_model = r_model
                 cfg.router_base_url = r_base
                 cfg.router_api_key = r_key
+                if s_entry.get("thinking") is not None:
+                    cfg.router_reasoning = bool(s_entry["thinking"])
+        # Answer-model thinking toggle (None = provider default)
+        if a_entry.get("thinking") is not None:
+            cfg.thinking_enabled = bool(a_entry["thinking"])
         return cfg
 
     # ── Back-compat shim (used by tests and older callers) ─────────────
@@ -570,6 +588,11 @@ def build_app(app: RAGApp | None = None) -> Any:
                     visible=False,  # known providers set it automatically
                 )
                 p_key = gr.Textbox(label="API key", type="password", scale=2)
+            p_thinking = gr.Checkbox(
+                label="Model thinking/reasoning (off recommended for the search role — "
+                "thinking models break structured routing/JSON)",
+                value=False,
+            )
             with gr.Row():
                 add_btn = gr.Button("+ Add provider", variant="primary")
                 rem_dd = gr.Dropdown(label="Remove provider", choices=app.list_providers())
@@ -617,9 +640,9 @@ def build_app(app: RAGApp | None = None) -> Any:
                     return gr.update(visible=False, value=preset)
                 return gr.update(visible=True, value="")
 
-            def _add(name, model, base, key, preset):
+            def _add(name, model, base, key, preset, thinking):
                 resolved = resolve_provider_base(preset, base)
-                msg = app.add_provider(name, model, resolved, key)
+                msg = app.add_provider(name, model, resolved, key, thinking=bool(thinking))
                 r1, r2, r3, provs = _refresh_providers()
                 return msg, r1, r2, r3, provs
 
@@ -635,7 +658,7 @@ def build_app(app: RAGApp | None = None) -> Any:
             p_preset.change(_on_preset, inputs=p_preset, outputs=p_base)
             add_btn.click(
                 _add,
-                inputs=[p_name, p_model, p_base, p_key, p_preset],
+                inputs=[p_name, p_model, p_base, p_key, p_preset, p_thinking],
                 outputs=[prov_status, rem_dd, answer_dd, search_dd, prov_list],
             )
             rem_btn.click(
@@ -666,7 +689,8 @@ def _fmt_providers(app: RAGApp) -> str:
         tag = f"  [{', '.join(role)}]" if role else ""
         base = entry.get("base_url") or "(env default)"
         key = "key ✓" if entry.get("api_key") else "key via env"
-        lines.append(f"{name}: {entry.get('model')} @ {base} ({key}){tag}")
+        thinking = " · thinking on" if entry.get("thinking") else ""
+        lines.append(f"{name}: {entry.get('model')} @ {base} ({key}){thinking}{tag}")
     return "\n".join(lines)
 
 

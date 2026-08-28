@@ -71,6 +71,10 @@ class LLMConfig:
     router_model: str | None = None
     router_base_url: str | None = None
     router_api_key: str | None = None
+    # Router thinking toggle (OpenRouter `reasoning.enabled`). None =
+    # disabled by default on OpenRouter (thinking models return garbage
+    # JSON/verdict prose); True = let the router model think.
+    router_reasoning: bool | None = None
 
     def __post_init__(self):
         # Universal OpenAI-compatible support:
@@ -134,7 +138,10 @@ def chat_completion(
     # Build extra params for thinking/reasoning
     extra: dict[str, Any] = {}
     if not config.thinking_enabled:
-        extra["thinking"] = {"type": "disabled"}
+        if config.base_url and "openrouter.ai" in config.base_url:
+            extra["reasoning"] = {"enabled": False}  # OpenRouter style
+        else:
+            extra["thinking"] = {"type": "disabled"}  # DeepSeek style
     if config.reasoning_effort:
         extra["reasoning_effort"] = config.reasoning_effort
     if config.reasoning is not None:
@@ -172,7 +179,10 @@ async def achat_completion(
     # Build extra params for thinking/reasoning
     extra: dict[str, Any] = {}
     if not config.thinking_enabled:
-        extra["thinking"] = {"type": "disabled"}
+        if config.base_url and "openrouter.ai" in config.base_url:
+            extra["reasoning"] = {"enabled": False}  # OpenRouter style
+        else:
+            extra["thinking"] = {"type": "disabled"}  # DeepSeek style
     if config.reasoning_effort:
         extra["reasoning_effort"] = config.reasoning_effort
     if config.reasoning is not None:
@@ -405,6 +415,7 @@ def resolve_router_config(config: LLMConfig | None) -> LLMConfig | None:
             base_url=config.router_base_url or config.base_url,
             api_key=config.router_api_key or config.api_key,
             temperature=0.1,
+            reasoning=config.router_reasoning,
         )
     if config is not None and config.api_key:
         return LLMConfig(
@@ -433,18 +444,27 @@ def router_completion(
     if cfg is None:
         return _mock_answer(messages)
 
+    payload = {
+        "model": cfg.model,
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": 4096,
+    }
+    # Thinking models dump "Thinking Process:" prose instead of the routing
+    # verdict (and their json_object mode returns bare garbage floats)
+    # unless reasoning is disabled. Default: off on OpenRouter; an explicit
+    # user toggle (router_reasoning) wins.
+    if cfg.reasoning is not None:
+        payload["reasoning"] = {"enabled": cfg.reasoning}
+    elif cfg.base_url and "openrouter.ai" in cfg.base_url:
+        payload["reasoning"] = {"enabled": False}
     resp = _get_client().post(
         f"{cfg.base_url}/chat/completions",
         headers={
             "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
         },
-        json={
-            "model": cfg.model,
-            "messages": messages,
-            "temperature": 0.1,
-            "max_tokens": 4096,
-        },
+        json=payload,
         timeout=timeout,
     )
     resp.raise_for_status()
@@ -468,19 +488,27 @@ def json_completion(
     if cfg is None:
         return {}
 
+    payload = {
+        "model": model or cfg.model,
+        "messages": messages,
+        "temperature": 0.05,  # Low temp for structured output
+        "max_tokens": 2048,
+        "response_format": {"type": "json_object"},
+    }
+    # qwen3.5-* thinking models: json_object mode alone returns bare
+    # garbage floats ("-1.0000...") unless reasoning is disabled.
+    # Default: off on OpenRouter; an explicit user toggle wins.
+    if cfg.reasoning is not None:
+        payload["reasoning"] = {"enabled": cfg.reasoning}
+    elif cfg.base_url and "openrouter.ai" in cfg.base_url:
+        payload["reasoning"] = {"enabled": False}
     resp = _get_client().post(
         f"{cfg.base_url}/chat/completions",
         headers={
             "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
         },
-        json={
-            "model": model or cfg.model,
-            "messages": messages,
-            "temperature": 0.05,  # Low temp for structured output
-            "max_tokens": 2048,
-            "response_format": {"type": "json_object"},
-        },
+        json=payload,
         timeout=timeout,
     )
     resp.raise_for_status()
@@ -489,12 +517,16 @@ def json_completion(
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Try to extract JSON from markdown code block
+        # Try to extract JSON from markdown code block, then from any
+        # balanced {...} block (thinking models embed JSON in prose).
         import re
 
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
         return {}
 
 

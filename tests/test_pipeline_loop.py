@@ -435,9 +435,10 @@ def _real_pipeline_with_chunks(chunks, namespace="default"):
     return p, storage, fid
 
 
-def test_standard_query_teaches_toc_from_processed_chunks(monkeypatch):
-    """A standard query — even one that 'finds no answer' — records
-    chunk-derived TOC entries from the chunks it examined."""
+def test_standard_query_does_not_teach_toc_without_ai(monkeypatch):
+    """TOC learning is AI-only: a standard query (toc_ai_headings off)
+    must NOT write heuristic first-line headings into the TOC — that
+    heuristic produced junk on datasheets ("One pin is input-only")."""
     p, storage, fid = _real_pipeline_with_chunks(
         [
             "Relief valve sizing formula: A = Q / (K * P).",
@@ -466,12 +467,8 @@ def test_standard_query_teaches_toc_from_processed_chunks(monkeypatch):
     answer, citations = p.query(fid, "what is the flow coefficient?")
 
     assert "No relevant content" in answer
-    # The examined chunk taught the TOC even though the query failed.
-    learned = storage.learned_toc_list(fid)
-    assert len(learned) == 1
-    assert learned[0]["heading"] == "Relief valve sizing formula"
-    assert learned[0]["chunk_start"] == 0
-    assert learned[0]["source"] == "chunk"
+    # The examined chunk must NOT teach the TOC — heuristic learning is off.
+    assert storage.learned_toc_list(fid) == []
 
 
 def test_agentic_query_teaches_toc_from_seen_chunks(monkeypatch):
@@ -523,12 +520,9 @@ def test_agentic_query_teaches_toc_from_seen_chunks(monkeypatch):
     answer, citations, metrics = p.query_agentic(fid, "torque spec")
 
     # The searcher READ a chunk (found_content=True) but reported it
-    # couldn't answer — and that reading still taught the TOC.
+    # couldn't answer — and with learning AI-only, nothing is recorded.
     assert metrics["found_content"] is True
-    learned = storage.learned_toc_list(fid)
-    assert len(learned) == 1
-    assert learned[0]["heading"] == "Spare part catalog"
-    assert learned[0]["source"] == "chunk"
+    assert storage.learned_toc_list(fid) == []
 
 
 def test_loop_query_teaches_toc_from_collected_chunks(monkeypatch):
@@ -579,12 +573,9 @@ def test_loop_query_teaches_toc_from_collected_chunks(monkeypatch):
     _, _, metrics = p.query_loop(fid, "setpoint", max_loops=2)
 
     assert metrics["stop_reason"] == "max_loops"
-    learned = storage.learned_toc_list(fid)
-    # All five chunks share the same derived heading (truncated at the
-    # colon), so they dedupe into ONE entry.
-    assert len(learned) == 1
-    assert learned[0]["heading"] == "Pressure relief valve setpoint"
-    assert learned[0]["source"] == "chunk"
+    # Learning is AI-only — the loop's collected chunks must NOT write
+    # heuristic headings into the TOC.
+    assert storage.learned_toc_list(fid) == []
 
 
 def test_learned_menu_merges_chunk_entries(monkeypatch):
@@ -653,11 +644,12 @@ def test_ai_headings_used_when_enabled(monkeypatch):
     headings = {e["heading"] for e in learned}
     assert "Relief valve sizing — orifice area formula" in headings
     assert "Steam line thermal expansion" in headings
+    assert all(e["source"] == "ai" for e in learned)
 
 
-def test_ai_headings_fallback_to_deterministic(monkeypatch):
-    """If the AI call fails/returns garbage, deterministic headings are
-    still recorded — learning never breaks."""
+def test_ai_headings_failure_skips_learning(monkeypatch):
+    """If the AI call fails, NOTHING is learned — no heuristic
+    fallback that could pollute the TOC with junk headings."""
     p, storage, fid = _real_pipeline_with_chunks(
         [
             "Relief valve sizing formula: A = Q / (K * P).",
@@ -677,14 +669,13 @@ def test_ai_headings_fallback_to_deterministic(monkeypatch):
         ],
     )
 
-    assert n == 1
-    learned = storage.learned_toc_list(fid)
-    assert learned[0]["heading"] == "Relief valve sizing formula"
-    assert learned[0]["source"] == "chunk"
+    assert n == 0
+    assert storage.learned_toc_list(fid) == []
 
 
-def test_ai_headings_off_uses_deterministic(monkeypatch):
-    """Default (flag off): deterministic headings, NO AI call."""
+def test_ai_headings_off_skips_learning(monkeypatch):
+    """Default (flag off): NOTHING is learned and no AI call is made —
+    the TOC stays exactly as extracted at load time."""
     p, storage, fid = _real_pipeline_with_chunks(
         [
             "Relief valve sizing formula: A = Q / (K * P).",
@@ -705,7 +696,6 @@ def test_ai_headings_off_uses_deterministic(monkeypatch):
         ],
     )
 
-    assert n == 1
+    assert n == 0
     assert ai_calls["n"] == 0  # no AI call when flag off
-    learned = storage.learned_toc_list(fid)
-    assert learned[0]["heading"] == "Relief valve sizing formula"
+    assert storage.learned_toc_list(fid) == []

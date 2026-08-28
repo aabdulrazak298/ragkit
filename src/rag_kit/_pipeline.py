@@ -1466,13 +1466,14 @@ class Pipeline:
         no answer.
 
         Heading source (Pipeline._toc_ai_headings):
-        - OFF (default): deterministic first-meaningful-line heuristic —
-          free, instant, repeatable.
+        - OFF (default): NOTHING is learned — the deterministic
+          first-line heuristic is disabled because it writes junk
+          headings on datasheets ("One pin is input-only"). The TOC
+          stays exactly as extracted at load time.
         - ON: ONE batched call to the cheap router model per query turns
           the newly-seen chunk texts into meaningful, structured headings
-          ("Relief valve sizing — orifice area formula") instead of raw
-          first lines. Falls back to the deterministic heuristic per chunk
-          on any failure so learning never breaks.
+          ("Relief valve sizing — orifice area formula"). If the AI call
+          fails, nothing is learned (no heuristic pollution).
 
         Args:
             file_id: The file the chunks belong to.
@@ -1504,23 +1505,25 @@ class Pipeline:
             return 0
 
         # AI mode: one batched router-model call -> {chunk_index: heading}.
-        ai_headings: dict[int, str] = {}
-        if getattr(self, "_toc_ai_headings", False):
-            try:
-                ai_headings = self._ai_heading_batch(items)
-            except Exception:
-                ai_headings = {}  # fall back per-chunk deterministic
+        # TOC learning is AI-ONLY — the deterministic first-line heuristic
+        # writes junk headings on datasheets ("One pin is input-only"), so
+        # without the AI toggle nothing is learned, and an AI failure never
+        # falls back to heuristic pollution.
+        if not getattr(self, "_toc_ai_headings", False):
+            return 0
+        try:
+            ai_headings = self._ai_heading_batch(items)
+        except Exception:
+            return 0  # no heuristic fallback — never pollute the TOC
 
         new = 0
         seen_headings: set[str] = set()
         for ci, text in items:
             heading = (ai_headings.get(ci) or "").strip()
-            if not heading:
-                heading = _chunk_to_heading(text)
             if not heading or heading in seen_headings:
                 continue
             seen_headings.add(heading)
-            if self._storage.learned_toc_add(file_id, heading, ci, ci, source="chunk"):
+            if self._storage.learned_toc_add(file_id, heading, ci, ci, source="ai"):
                 new += 1
         return new
 
@@ -1814,8 +1817,12 @@ class Pipeline:
 
         selected = []
         for path in selected_paths[:10]:
+            # Normalize both sides (whitespace/NBSP variants) — the router
+            # model echoes headings from the prompt, which came from the
+            # mappings; PDF outlines carry \xa0 that can otherwise mismatch.
+            norm = " ".join(str(path).replace("\xa0", " ").split())
             for m in mappings:
-                if m["hierarchical_path"] == path:
+                if " ".join(m["hierarchical_path"].replace("\xa0", " ").split()) == norm:
                     selected.append(m)
                     break
 

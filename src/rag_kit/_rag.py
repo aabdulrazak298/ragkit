@@ -76,6 +76,57 @@ class QueryResult:
         return f"QueryResult(answer={self.answer[:50]}..., citations={len(self.citations)})"
 
 
+def _pdf_outline_headings(reader, page_texts: list[str]) -> list[dict]:
+    """Convert a PDF's embedded outline (bookmarks) to heading dicts.
+
+    Datasheets and manuals ship with real bookmarks; the chunk first-line
+    heuristic produces register-name noise for them (e.g. Microchip
+    datasheets → 2000+ junk headings). Outline items carry proper titles
+    and hierarchy — page numbers become character offsets into the
+    flattened page text so section mappings still line up with chunks.
+
+    Returns [{title, level, offset}] in document order (already sorted).
+    """
+    outline = getattr(reader, "outline", None)
+    if not outline:
+        return []
+
+    # Cumulative char offset of each page inside the "\n".join(page_texts).
+    page_offsets = [0]
+    for pt in page_texts:
+        page_offsets.append(page_offsets[-1] + len(pt) + 1)  # +1 for the join newline
+
+    headings: list[dict] = []
+    page_num = getattr(reader, "get_destination_page_number", None)
+
+    def walk(items: list, level: int = 1) -> None:
+        for item in items:
+            if isinstance(item, list):
+                walk(item, level + 1)
+                continue
+            title = str(getattr(item, "title", "") or "").strip()
+            if not title:
+                continue
+            # PDFs render headings with non-breaking spaces ("8.\xa0OSC ...");
+            # normalize so TOC text, prompts, and the model's echoed paths
+            # all use plain spaces (exact-match routing depends on it).
+            title = title.replace("\xa0", " ")
+            idx = 0
+            try:
+                if page_num is not None:
+                    idx = int(page_num(item))  # 0-based page number
+                elif getattr(item, "page", None) in reader.pages:
+                    idx = reader.pages.index(item.page)
+            except Exception:
+                idx = 0
+            headings.append(
+                {"title": title, "level": level, "offset": page_offsets[idx] if idx < len(page_offsets) else 0}
+            )
+
+    walk(outline)
+    return headings
+
+
 class RAGSystem:
     """Main entry point for rag-kit.
 
@@ -275,6 +326,8 @@ class RAGSystem:
             ".yml",
             ".log",
         }
+        reader = None
+        page_texts: list[str] = []
 
         if ext in text_exts:
             with open(path, encoding="utf-8", errors="ignore") as f:
@@ -295,7 +348,8 @@ class RAGSystem:
                         "(adds cryptography)."
                     ) from e
                 raise
-            text = "\n".join(page.extract_text() for page in reader.pages)
+            page_texts = [page.extract_text() or "" for page in reader.pages]
+            text = "\n".join(page_texts)
             source_type = "pdf"
 
             # Check if the text is meaningful (scanned PDFs extract nothing)
@@ -401,8 +455,14 @@ class RAGSystem:
             overlap or self._overlap,
         )
 
-        # Auto-extract section mappings and TOC from raw text
-        headings = _extract_headings_from_text(text)
+        # Auto-extract section mappings and TOC from raw text. PDFs with an
+        # embedded outline (datasheets, manuals) get a REAL structured TOC
+        # from the bookmarks; everything else uses the text heuristic.
+        headings: list[dict] = []
+        if source_type == "pdf" and reader is not None:
+            headings = _pdf_outline_headings(reader, page_texts)
+        if not headings:
+            headings = _extract_headings_from_text(text)
         if headings:
             mappings = _build_section_mappings(
                 headings,

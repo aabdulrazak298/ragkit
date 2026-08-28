@@ -161,6 +161,28 @@ class TestRAGApp:
         assert b.list_providers() == ["DeepSeek"]
         assert b.answer_role == "DeepSeek"
 
+    def test_provider_thinking_toggle_wires_roles(self, app):
+        app.add_provider("DeepSeek", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1")
+        app.add_provider(
+            "Router", "qwen/qwen3.5-flash-02-23", "https://openrouter.ai/api/v1", "sk-2",
+            thinking=False,
+        )
+        app.set_roles("DeepSeek", "Router")
+        cfg = app._llm_config()
+        assert cfg.thinking_enabled is True  # answer: no toggle set -> default on
+        assert cfg.router_reasoning is False  # router: thinking explicitly off
+        from rag_kit._llm import resolve_router_config
+
+        r = resolve_router_config(cfg)
+        assert r is not None and r.reasoning is False
+
+    def test_provider_thinking_off_disables_answer_thinking(self, app):
+        app.add_provider(
+            "DS", "deepseek-v4-flash", "https://api.deepseek.com/v1", "sk-1", thinking=False
+        )
+        app.set_roles("DS")
+        assert app._llm_config().thinking_enabled is False
+
     def test_deepseek_provider_maps_model_prefix(self, app):
         # DeepSeek direct API wants "deepseek-v4-flash", not "deepseek/deepseek-v4-flash"
         app.set_llm(
