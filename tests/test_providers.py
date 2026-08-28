@@ -11,7 +11,13 @@ Contract under test:
 
 from dataclasses import replace
 
-from rag_kit._llm import LLMConfig, json_completion, resolve_router_config, router_completion
+from rag_kit._llm import (
+    LLMConfig,
+    chat_completion_tools,
+    json_completion,
+    resolve_router_config,
+    router_completion,
+)
 from rag_kit._vector_index import _embedding_url
 
 DEFAULT_OR = "https://openrouter.ai/api/v1"
@@ -290,3 +296,181 @@ class TestTwoStageChain:
         assert json_completion([{"role": "user", "content": "hi"}], config=cfg) == {"ok": True}
         assert len(fake.calls) == 1
         assert fake.calls[0]["reasoning"] == {"enabled": False}
+
+
+class _FakeMsgResp:
+    def __init__(self, msg: dict):
+        self._msg = msg
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"choices": [{"message": self._msg}]}
+
+
+class _FakeMsgClient:
+    """Records payloads; serves scripted message dicts (may carry
+    tool_calls) per call."""
+
+    def __init__(self, messages: list[dict]):
+        self.calls: list[dict] = []
+        self._msgs = messages
+
+    def post(self, url, headers, json, timeout):
+        self.calls.append(json)
+        return _FakeMsgResp(self._msgs[len(self.calls) - 1])
+
+
+def _tool_cfg() -> LLMConfig:
+    return LLMConfig(
+        model="deepseek-v4-flash",
+        base_url="https://api.deepseek.com/v1",
+        api_key="k",
+    )
+
+
+class TestToolChat:
+    """chat_completion_tools: retrieval as a tool call keeps the chat
+    flow clean — history as messages, chunks only via tool results."""
+
+    def test_loop_executes_tool_and_returns_answer(self, monkeypatch):
+        tool_msg = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "search_documents",
+                        "arguments": '{"query": "NCO"}',
+                    },
+                }
+            ],
+        }
+        final_msg = {"role": "assistant", "content": "Here is the NCO setup."}
+        fake = _FakeMsgClient([tool_msg, final_msg])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        calls: list[tuple] = []
+
+        def executor(name, args):
+            calls.append((name, args))
+            return "NCO excerpt"
+
+        answer, log = chat_completion_tools(
+            [{"role": "user", "content": "give an example to setup this"}],
+            _tool_cfg(),
+            [{"type": "function", "function": {"name": "search_documents"}}],
+            executor,
+        )
+        assert answer == "Here is the NCO setup."
+        assert calls == [("search_documents", {"query": "NCO"})]
+        assert log[0]["name"] == "search_documents"
+        assert log[0]["result"] == "NCO excerpt"
+        # round 1 carried tools; round 2 fed the tool result back
+        assert fake.calls[0]["tools"] and fake.calls[0]["tool_choice"] == "auto"
+        msgs2 = fake.calls[1]["messages"]
+        assert msgs2[-2]["role"] == "assistant" and msgs2[-2]["tool_calls"]
+        assert msgs2[-1] == {"role": "tool", "tool_call_id": "call_1", "content": "NCO excerpt"}
+
+    def test_multiple_tool_calls_in_one_round(self, monkeypatch):
+        tool_msg = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "get_toc", "arguments": "{}"},
+                },
+                {
+                    "id": "c2",
+                    "type": "function",
+                    "function": {
+                        "name": "search_documents",
+                        "arguments": '{"query": "registers"}',
+                    },
+                },
+            ],
+        }
+        final_msg = {"role": "assistant", "content": "done"}
+        fake = _FakeMsgClient([tool_msg, final_msg])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        results: list[str] = []
+
+        def executor(name, args):
+            results.append(name)
+            return f"result:{name}"
+
+        answer, log = chat_completion_tools([{"role": "user", "content": "q"}], _tool_cfg(), [], executor)
+        assert answer == "done"
+        assert results == ["get_toc", "search_documents"]
+        # both tool results appended before round 2
+        msgs2 = fake.calls[1]["messages"]
+        assert msgs2[-2] == {"role": "tool", "tool_call_id": "c1", "content": "result:get_toc"}
+        assert msgs2[-1] == {"role": "tool", "tool_call_id": "c2", "content": "result:search_documents"}
+
+    def test_no_tool_support_falls_back_to_plain(self, monkeypatch):
+        class _RaisingClient:
+            def __init__(self):
+                self.n = 0
+
+            def post(self, url, headers, json, timeout):
+                self.n += 1
+                if self.n == 1:
+                    raise RuntimeError("tools not supported")
+                assert "tools" not in json and "tool_choice" not in json
+                return _FakeMsgResp({"role": "assistant", "content": "plain answer"})
+
+        fake = _RaisingClient()
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        answer, log = chat_completion_tools(
+            [{"role": "user", "content": "q"}], _tool_cfg(), [{"type": "function"}], lambda *a: "x"
+        )
+        assert answer == "plain answer"
+        assert log == []
+
+    def test_max_rounds_bounds_the_loop(self, monkeypatch):
+        tool_msg = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c",
+                    "type": "function",
+                    "function": {"name": "search_documents", "arguments": "{}"},
+                }
+            ],
+        }
+        fake = _FakeMsgClient([tool_msg] * 10)
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+        answer, log = chat_completion_tools(
+            [{"role": "user", "content": "q"}], _tool_cfg(), [], lambda name, args: "r", max_rounds=3
+        )
+        assert "could not finish" in answer
+        assert len(log) == 3
+
+    def test_executor_error_fed_back_as_tool_result(self, monkeypatch):
+        tool_msg = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c",
+                    "type": "function",
+                    "function": {"name": "search_documents", "arguments": '{"query":"x"}'},
+                }
+            ],
+        }
+        final_msg = {"role": "assistant", "content": "recovered"}
+        fake = _FakeMsgClient([tool_msg, final_msg])
+        monkeypatch.setattr("rag_kit._llm._get_client", lambda: fake)
+
+        def executor(name, args):
+            raise ValueError("index missing")
+
+        answer, log = chat_completion_tools([{"role": "user", "content": "q"}], _tool_cfg(), [], executor)
+        assert answer == "recovered"
+        assert "Tool error" in log[0]["result"]
+        assert fake.calls[1]["messages"][-1]["content"] == "Tool error: index missing"

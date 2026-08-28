@@ -218,92 +218,85 @@ class TestRAGApp:
         b = RAGApp(db_path=str(tmp_path / "b.db"), settings_path=p)
         assert b.converter_role == "DS"
 
-    def test_followup_question_condensed_before_ask(self, app, monkeypatch):
-        """'give an example to setup this' after an NCO answer must reach
-        the pipeline as a standalone NCO question (context kept)."""
-        import rag_kit._ui as ui
+    def test_followup_gets_full_history_tool_chat(self, app, monkeypatch):
+        """Tool-calling chat: 'give example to setup this' after an NCO
+        answer reaches the model WITH the full thread — no query rewrite,
+        the model resolves 'this' itself."""
 
         captured = {}
 
-        def fake_ask(self_, question, file_id=None, mode="standard", **kw):
-            captured["q"] = question
-            return "NCO setup answer", []
+        def fake_tool_chat(self_, history, file_id=None):
+            captured["history"] = [dict(m) for m in history]  # snapshot
+            return "NCO setup answer"
 
-        def fake_json(messages, **kw):
-            return {"question": "How do I set up the NCO module on the PIC16F18426?"}
-
-        monkeypatch.setattr(ui, "json_completion", fake_json)
-        monkeypatch.setattr(RAGApp, "ask", fake_ask)
+        monkeypatch.setattr(RAGApp, "_tool_chat", fake_tool_chat)
         history = [
             {"role": "user", "content": "What is the NCO module?"},
             {"role": "assistant", "content": "The NCO is a 24-bit accumulator oscillator..."},
         ]
-        app.chat_turn(history, "give example to setup this")
-        assert "NCO" in captured["q"]
-        assert captured["q"] != "give example to setup this"
+        out = app.chat_turn(history, "give example to setup this", file_id="1")
+        # Full thread (prior Q&A + new question) goes to the model
+        assert captured["history"][-1] == {"role": "user", "content": "give example to setup this"}
+        assert any("NCO" in m["content"] for m in captured["history"])
+        # Answer appended to the returned history
+        assert out[-1] == {"role": "assistant", "content": "NCO setup answer"}
 
-    def test_first_turn_passes_question_unchanged(self, app, monkeypatch):
-        """No prior conversation -> no condensing call, question as-is."""
-        import rag_kit._ui as ui
-
-        captured = {}
-        called = {"n": 0}
-
-        def fake_ask(self_, question, file_id=None, mode="standard", **kw):
-            captured["q"] = question
-            return "ok", []
-
-        def fake_json(messages, **kw):
-            called["n"] += 1
-            return {"question": "SHOULD NOT HAPPEN"}
-
-        monkeypatch.setattr(ui, "json_completion", fake_json)
-        monkeypatch.setattr(RAGApp, "ask", fake_ask)
-        app.chat_turn([], "What is a NCO?")
-        assert captured["q"] == "What is a NCO?"
-        assert called["n"] == 0
-
-    def test_condense_failure_keeps_original(self, app, monkeypatch):
+    def test_tool_chat_builds_system_prompt_with_doc(self, app, monkeypatch):
+        """The model must KNOW a document is attached: system prompt names
+        it and advertises the search_documents tool."""
         import rag_kit._ui as ui
 
         captured = {}
 
+        def fake_ct(messages, config, tools, executor, timeout=120):
+            captured["messages"] = messages
+            captured["tools"] = tools
+            return "answer", []
+
+        monkeypatch.setattr(ui, "chat_completion_tools", fake_ct)
+        out = app._tool_chat([{"role": "user", "content": "hi"}], file_id="1")
+        assert out == "answer"
+        sysmsg = captured["messages"][0]
+        assert sysmsg["role"] == "system"
+        assert "document attached" in sysmsg["content"].lower()
+        names = [t["function"]["name"] for t in captured["tools"]]
+        assert "search_documents" in names and "get_toc" in names
+        # user message passed through
+        assert captured["messages"][-1] == {"role": "user", "content": "hi"}
+
+    def test_tool_executor_search_formats_results(self, app, monkeypatch):
+        def fake_search(query, file_id=None):
+            return [
+                {"chunk_index": 3, "sections": ["8. OSC - Oscillator Module"], "text": "NCO content here"},
+            ]
+
+        monkeypatch.setattr(app.rag, "search", fake_search)
+        exec_ = app._tool_executor(1)
+        out = exec_("search_documents", {"query": "NCO"})
+        assert "8. OSC" in out and "NCO content" in out
+        # unknown tool
+        assert "Unknown tool" in exec_("nope", {})
+
+    def test_tool_chat_failure_falls_back_to_ask(self, app, monkeypatch):
+        """Tool chat unavailable (no key / provider rejects) -> classic
+        pipeline with the thread as conversation context."""
+
+        captured = {}
+
+        def fake_tool_chat(self_, history, file_id=None):
+            raise RuntimeError("no tool support")
+
         def fake_ask(self_, question, file_id=None, mode="standard", **kw):
             captured["q"] = question
+            captured["conv"] = kw.get("conversation")
             return "ok", []
 
-        def fake_json(messages, **kw):
-            raise RuntimeError("router down")
-
-        monkeypatch.setattr(ui, "json_completion", fake_json)
+        monkeypatch.setattr(RAGApp, "_tool_chat", fake_tool_chat)
         monkeypatch.setattr(RAGApp, "ask", fake_ask)
         history = [{"role": "user", "content": "What is the NCO?"},
                    {"role": "assistant", "content": "NCO is an oscillator."}]
         app.chat_turn(history, "give example to setup this")
         assert captured["q"] == "give example to setup this"
-
-    def test_conversation_thread_reaches_ask(self, app, monkeypatch):
-        """The prior thread (as text) must reach the pipeline so synthesis
-        can resolve 'this'/'it' — the 'model didn't know the history'
-        bug."""
-        import rag_kit._ui as ui
-
-        captured = {}
-
-        def fake_ask(self_, question, file_id=None, mode="standard", **kw):
-            captured["conv"] = kw.get("conversation")
-            return "NCO setup steps...", []
-
-        def fake_json(messages, **kw):
-            return {"question": "How do I set up the NCO?"}
-
-        monkeypatch.setattr(ui, "json_completion", fake_json)
-        monkeypatch.setattr(RAGApp, "ask", fake_ask)
-        history = [
-            {"role": "user", "content": "What is the NCO module?"},
-            {"role": "assistant", "content": "The NCO uses a 24-bit accumulator..."},
-        ]
-        app.chat_turn(history, "give example to setup this")
         assert captured["conv"] is not None
         assert "NCO" in captured["conv"]
 
@@ -369,6 +362,17 @@ class TestChatTurn:
         history = app.chat_turn([], "   ", file_id=None)
         assert history == []
 
+    @pytest.fixture(autouse=True)
+    def _force_fallback(self, monkeypatch):
+        """These tests exercise the classic-pipeline fallback; make the
+        tool chat unavailable (deterministic, no live LLM calls even if
+        a key is present in the test environment)."""
+
+        def boom(self_, history, file_id=None):
+            raise RuntimeError("tool chat unavailable in tests")
+
+        monkeypatch.setattr(RAGApp, "_tool_chat", boom)
+
     def test_citations_not_attached_to_answer(self, app, monkeypatch):
         # ChatGPT-style: answers are plain — no chunk/citation references
         app.ask = lambda question, file_id=None, mode="standard", namespace=None, max_loops=4, **kw: (
@@ -381,6 +385,13 @@ class TestChatTurn:
 
 class TestSummarization:
     """FlaskChat-style memory: conversations past 7 turns get summarized."""
+
+    @pytest.fixture(autouse=True)
+    def _force_fallback(self, monkeypatch):
+        def boom(self_, history, file_id=None):
+            raise RuntimeError("tool chat unavailable in tests")
+
+        monkeypatch.setattr(RAGApp, "_tool_chat", boom)
 
     def _history(self, n):
         h = []
@@ -423,6 +434,23 @@ class TestSummarization:
         # memory message still at front
         assert h2[0]["content"] == "📝 Memory: TEST SUMMARY"
         assert len(h2) == 1 + 8 + 4
+
+    def test_summary_by_token_budget(self, app, monkeypatch):
+        """Long messages push the thread past the ~6k-token budget and
+        trigger summarization even with FEWER than SUMMARY_TURNS turns."""
+        app._summarize_messages = lambda msgs: "BUDGET SUMMARY"
+        big = "x" * 7000  # ~1.75k tokens each
+        h = []
+        for i in range(6):
+            h += [
+                {"role": "user", "content": f"q{i}"},
+                {"role": "assistant", "content": big},
+            ]
+        out = app._maybe_summarize(h)
+        assert out[0]["content"] == "📝 Memory: BUDGET SUMMARY"
+        # first two exchanges collapsed; the last KEEP_TURNS kept verbatim
+        assert out[1]["role"] == "user" and out[1]["content"] == "q2"
+        assert len(out) == 1 + 8
 
     def test_summary_without_key_returns_empty(self, app, monkeypatch):
         monkeypatch.delenv("OPENROUTER_KEY", raising=False)

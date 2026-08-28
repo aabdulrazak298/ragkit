@@ -15,7 +15,7 @@ import os
 from typing import Any
 
 from rag_kit import LLMConfig, RAGSystem
-from rag_kit._llm import chat_completion, json_completion
+from rag_kit._llm import chat_completion, chat_completion_tools, json_completion
 
 # Defaults mirrored from _llm.py (kept here so the UI can show them).
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
@@ -26,6 +26,50 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 # stay verbatim).
 SUMMARY_TURNS = 7
 KEEP_TURNS = 4
+# History is summarized when it exceeds ~6k tokens (rough 4 chars/token),
+# so long threads stay inside the model's context budget.
+HISTORY_TOKEN_BUDGET = 6000
+
+# Tool schemas for the tool-calling chat: retrieval and TOC lookup. The
+# model decides when to call them; the executor is bound to the attached
+# file (RAGApp._tool_executor).
+_CHAT_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_documents",
+            "description": (
+                "Search the attached document for content relevant to the "
+                "query. Returns text excerpts with their section names. "
+                "Call this before answering questions about the document."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Search query using the document's own terms "
+                            "(module names, register names, keywords)."
+                        ),
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_toc",
+            "description": (
+                "Get the table of contents of the attached document, to "
+                "navigate its structure before searching."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
 
 # Common OpenAI-compatible providers — selecting one fills the base URL for
 # the user, so they only ever pick a provider and paste a key.
@@ -388,26 +432,99 @@ class RAGApp:
         if not question or not question.strip():
             return history
         history = self._maybe_summarize(history)
-        # Follow-ups are usually pronoun references ("give an example to
-        # set up this") — retrieval and synthesis would lose the context.
-        # Rewrite into a standalone question via the cheap router model.
-        # Runs BEFORE appending, so the current question is never treated
-        # as prior conversation.
-        search_q = self._condense_question(question, history)
         history.append({"role": "user", "content": question})
-        # Prior thread as text context for the synthesis (pronoun refs).
-        conv_text = "\n".join(
-            f"{m.get('role')}: {m.get('content', '')[:500]}"
-            for m in history[:-1]
-            if m.get("content")
-        )[-6000:]
-        answer, _citations = self.ask(
-            search_q, file_id=file_id, mode=mode, conversation=conv_text or None
-        )
+        try:
+            # Tool-calling chat: FULL history as messages, retrieval via
+            # the search_documents tool (the model knows the document is
+            # attached from the system prompt). No query rewriting — the
+            # model resolves follow-up pronouns itself when it writes the
+            # tool query.
+            answer = self._tool_chat(history, file_id=file_id)
+        except Exception:
+            # Fallback: classic pipeline (no tool support / no key). The
+            # prior thread still goes in as text context.
+            conv_text = "\n".join(
+                f"{m.get('role')}: {m.get('content', '')[:500]}"
+                for m in history[:-1]
+                if m.get("content")
+            )[-6000:]
+            answer, _citations = self.ask(
+                question, file_id=file_id, mode=mode, conversation=conv_text or None
+            )
         history.append({"role": "assistant", "content": answer})
         return history
 
     # ── Conversation memory (FlaskChat-style summarization) ────────────
+
+    def _tool_chat(self, history: list, file_id: str | None = None) -> str:
+        """Tool-calling chat turn: FULL history as messages, retrieval via
+        the search_documents tool. The system prompt announces the attached
+        document so the model knows it can retrieve from it."""
+        cfg = self._llm_config()
+        if not cfg.api_key:
+            raise RuntimeError("No API key configured")
+        fid = int(file_id) if (file_id and str(file_id).strip().isdigit()) else None
+
+        # Attached document name for the system prompt.
+        doc_name = ""
+        try:
+            for f in self.rag.list():
+                if f["file_id"] == fid:
+                    doc_name = f["filename"]
+                    break
+        except Exception:
+            pass
+
+        system = (
+            "You are a document assistant. "
+            + (
+                f"The user has a document attached: \"{doc_name}\". "
+                if doc_name
+                else "The user may have a document attached. "
+            )
+            + "Use the search_documents tool to retrieve relevant content before "
+            "answering questions about the document — do not answer from general "
+            "knowledge when the document likely covers it. You may call get_toc "
+            "to see the document structure. Answer from the retrieved content; "
+            "reference section names naturally. Never mention chunk numbers or "
+            "internal metadata."
+        )
+        messages = [{"role": "system", "content": system}] + [
+            {"role": m.get("role"), "content": m.get("content", "")}
+            for m in history
+            if m.get("role") in ("user", "assistant")
+        ]
+        answer, _log = chat_completion_tools(
+            messages,
+            cfg,
+            _CHAT_TOOLS,
+            self._tool_executor(fid),
+            timeout=120,
+        )
+        return answer
+
+    def _tool_executor(self, file_id: int | None):
+        """Build the tool executor bound to the attached file (None =
+        cross-file search)."""
+
+        def execute(name: str, args: dict) -> str:
+            if name == "search_documents":
+                q = str(args.get("query", "")).strip()
+                if not q:
+                    return "Please provide a search query."
+                results = self.rag.search(query=q, file_id=file_id)
+                parts = []
+                for r in results[:6]:
+                    secs = r.get("sections") or []
+                    head = f"[{', '.join(secs)}]" if secs else f"[chunk {r.get('chunk_index', r.get('index', '?'))}]"
+                    parts.append(f"{head} {(r.get('text') or r.get('preview') or '')[:1200]}")
+                return "\n\n".join(parts) if parts else "No relevant content found."
+            if name == "get_toc":
+                toc = self.rag._storage.get_toc(file_id) if file_id is not None else ""
+                return toc[:3000] if toc else "No table of contents for the attached document."
+            return f"Unknown tool: {name}"
+
+        return execute
 
     def _condense_question(self, question: str, history: list) -> str:
         """Rewrite a follow-up into a standalone question using the recent
@@ -453,15 +570,20 @@ class RAGApp:
             return question
 
     def _maybe_summarize(self, history: list) -> list:
-        """Once the thread passes SUMMARY_TURNS user turns, collapse
+        """Once the thread passes SUMMARY_TURNS user turns — or grows past
+        ~HISTORY_TOKEN_BUDGET tokens (~6k, rough 4 chars/token) — collapse
         everything older than the last KEEP_TURNS turns into one visible
-        Memory message. Returns history unchanged if below threshold or the
-        summarizer fails."""
+        Memory message. Returns history unchanged if below both thresholds
+        or the summarizer fails."""
         user_idx = [i for i, m in enumerate(history) if m.get("role") == "user"]
-        if len(user_idx) < SUMMARY_TURNS:
+        total_chars = sum(len(m.get("content", "")) for m in history if m.get("content"))
+        over_budget = total_chars > HISTORY_TOKEN_BUDGET * 4
+        if len(user_idx) < SUMMARY_TURNS and not over_budget:
             return history
-        cutoff = user_idx[-KEEP_TURNS]
+        cutoff = user_idx[max(0, len(user_idx) - KEEP_TURNS)]
         old, recent = history[:cutoff], history[cutoff:]
+        if not old:
+            return history  # nothing older than the recent window
         summary = self._summarize_messages(old)
         if not summary:
             return history

@@ -445,8 +445,9 @@ def resolve_router_config(config: LLMConfig | None) -> LLMConfig | None:
     return None
 
 
-def _post_chat(cfg: LLMConfig, payload: dict, timeout: int) -> str:
-    """POST a chat-completion payload; return the message content."""
+def _post_chat_message(cfg: LLMConfig, payload: dict, timeout: int) -> dict:
+    """POST a chat-completion payload; return the full message dict
+    (content + optional tool_calls)."""
     resp = _get_client().post(
         f"{cfg.base_url}/chat/completions",
         headers={
@@ -458,7 +459,84 @@ def _post_chat(cfg: LLMConfig, payload: dict, timeout: int) -> str:
     )
     resp.raise_for_status()
     data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    return data["choices"][0]["message"]
+
+
+def _post_chat(cfg: LLMConfig, payload: dict, timeout: int) -> str:
+    """POST a chat-completion payload; return the message content."""
+    return _post_chat_message(cfg, payload, timeout).get("content") or ""
+
+
+def chat_completion_tools(
+    messages: list[dict],
+    config: LLMConfig,
+    tools: list[dict],
+    tool_executor,
+    timeout: int = 120,
+    max_rounds: int = 6,
+) -> tuple[str, list[dict]]:
+    """Tool-calling chat loop: the model may call tools (retrieval, TOC),
+    results are fed back as tool messages, until it produces a final
+    answer. Returns (answer, tool_log) where tool_log = [{"name", "args",
+    "result"}, ...]. Falls back to a plain completion if the provider
+    rejects tool calls (no tool support)."""
+    if not config.api_key:
+        return _mock_answer(messages), []
+
+    extra: dict[str, Any] = {}
+    if not config.thinking_enabled:
+        if config.base_url and "openrouter.ai" in config.base_url:
+            extra["reasoning"] = {"enabled": False}  # OpenRouter style
+        else:
+            extra["thinking"] = {"type": "disabled"}  # DeepSeek style
+    if config.reasoning is not None:
+        extra["reasoning"] = {"enabled": config.reasoning}
+
+    msgs = list(messages)
+    log: list[dict] = []
+    for _round in range(max_rounds):
+        payload = {
+            "model": config.model,
+            "messages": msgs,
+            "temperature": config.temperature,
+            **( {"max_tokens": config.max_tokens} if config.max_tokens else {}),
+            "tools": tools,
+            "tool_choice": "auto",
+            **extra,
+        }
+        try:
+            msg = _post_chat_message(config, payload, timeout)
+        except Exception:
+            # No tool support (or transient error) — retry as plain chat.
+            plain = {k: v for k, v in payload.items() if k not in ("tools", "tool_choice")}
+            return _post_chat(config, plain, timeout), log
+        tool_calls = msg.get("tool_calls") or []
+        if not tool_calls:
+            return msg.get("content") or "", log
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": msg.get("content") or "",
+                "tool_calls": tool_calls,
+            }
+        )
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            name = fn.get("name", "")
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            try:
+                result = tool_executor(name, args)
+            except Exception as e:  # noqa: BLE001 — feed the error back
+                result = f"Tool error: {e}"
+            result = str(result)
+            msgs.append(
+                {"role": "tool", "tool_call_id": tc.get("id", ""), "content": result}
+            )
+            log.append({"name": name, "args": args, "result": result})
+    return "I could not finish the answer after several retrieval steps.", log
 
 
 def _router_thinks(cfg: LLMConfig) -> bool:
