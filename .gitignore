@@ -7,3 +7,11 @@ __pycache__/
 *.db
 .DS_Store
 build/
+
+# Secrets — never commit credentials
+.env
+*.env
+.env.*
+providers.json
+*.key
+*.pem
