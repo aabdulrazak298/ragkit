@@ -36,6 +36,16 @@ class TestRAGApp:
         assert fid.isdigit()
         assert "Loaded" in status or fid.isdigit()
 
+    def test_load_file_progress_stream(self, app, doc):
+        # progress=True returns a generator: at least the final result,
+        # and any intermediate yields are 2-tuples of status text.
+        updates = list(app.load_file(doc, progress=True))
+        assert updates, "generator must yield at least the final result"
+        assert all(isinstance(u, tuple) and len(u) == 2 for u in updates)
+        status, fid = updates[-1]
+        assert "Loaded" in status
+        assert fid.isdigit()
+
     def test_list_and_delete(self, app, doc):
         _, fid = app.load_file(doc)
         rows = app.list_files()

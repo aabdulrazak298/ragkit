@@ -357,12 +357,77 @@ class RAGApp:
 
     # ── Documents ──────────────────────────────────────────────────────
 
-    def load_file(self, path: str, namespace: str = "default") -> tuple[str, str]:
+    def _load_hint(self, path: str) -> str:
+        """Human hint for how long a load may take (shown as progress text)."""
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".pdf":
+            try:
+                from pypdf import PdfReader
+
+                n = len(PdfReader(path).pages)
+                return f"{n}-page PDF — docling parsing can take minutes"
+            except Exception:
+                return "docling parsing can take minutes"
+        if ext in {
+            ".mp3",
+            ".wav",
+            ".m4a",
+            ".flac",
+            ".ogg",
+            ".opus",
+            ".aac",
+            ".wma",
+            ".mp4",
+            ".webm",
+            ".mov",
+            ".mkv",
+            ".avi",
+        }:
+            return "transcribing audio/video (Whisper)"
+        return "docling parsing (first use downloads models)"
+
+    def _load_file_sync(self, path: str, namespace: str) -> tuple[str, str]:
         try:
             fid = self.rag.load_file(path, namespace=namespace)
             return f"Loaded — file_id {fid} ({namespace})", str(fid)
         except Exception as e:  # noqa: BLE001 — surface to the user
             return f"Error: {e}", ""
+
+    def _load_file_progress(self, path: str, namespace: str):
+        """Generator: yield (status, "") updates while the conversion runs,
+        then the final (status, file_id). Must live in its own function —
+        any `yield` in load_file would make the sync path a generator too."""
+        import threading
+        import time
+
+        result: dict[str, tuple[str, str]] = {}
+
+        def _work() -> None:
+            result["out"] = self._load_file_sync(path, namespace)
+
+        t = threading.Thread(target=_work, daemon=True)
+        t.start()
+        desc = self._load_hint(path)
+        start = time.time()
+        while t.is_alive():
+            el = int(time.time() - start)
+            yield f"⏳ Converting… {el // 60}:{el % 60:02d} elapsed — {desc}", ""
+            time.sleep(1.5)
+        t.join()
+        yield result["out"]
+
+    def load_file(self, path: str, namespace: str = "default", progress: bool = False):
+        """Load a file into the RAG database.
+
+        progress=False (default): returns (status, file_id).
+        progress=True: returns a GENERATOR yielding (status, "") progress
+        updates (elapsed time + what's happening) while the conversion
+        runs, with the final (status, file_id) as the last yield — so the
+        UI shows live feedback instead of looking hung on big documents.
+        """
+        if not progress:
+            return self._load_file_sync(path, namespace)
+        return self._load_file_progress(path, namespace)
 
     def load_url(self, url: str, namespace: str = "default") -> tuple[str, str]:
         try:
@@ -851,13 +916,19 @@ def build_app(app: RAGApp | None = None) -> Any:
 
             def _load(file, url):
                 if file is not None:
-                    status, _ = app.load_file(file.name)
-                elif url.strip():
+                    # Generator: stream progress updates while converting,
+                    # then the final status — the UI shows live feedback
+                    # instead of looking hung on big documents.
+                    for status, _ in app.load_file(file.name, progress=True):
+                        dd_ask, dd_search = _refresh_dd()
+                        yield status, _refresh_list(), dd_ask, dd_search
+                    return
+                if url.strip():
                     status, _ = app.load_url(url.strip())
                 else:
                     status = "Pick a file or enter a URL."
                 dd_ask, dd_search = _refresh_dd()
-                return status, _refresh_list(), dd_ask, dd_search
+                yield status, _refresh_list(), dd_ask, dd_search
 
             def _delete(fid):
                 dd_ask, dd_search = _refresh_dd()

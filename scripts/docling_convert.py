@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import time
 from pathlib import Path
 
 # Make the package importable from a git checkout without installing.
@@ -66,6 +67,11 @@ def check_gpu() -> None:
     except ImportError:
         print("Whisper (audio/video ASR): NOT installed — pip install 'rag-kit[docling-asr]'")
     print(f"ffmpeg (video decoding): {shutil.which('ffmpeg') or 'NOT found'}")
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m {s:02d}s" if m else f"{s}s"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -121,6 +127,8 @@ def main(argv: list[str] | None = None) -> int:
         if f.suffix.lower() not in _docling.DOCLING_EXTS:
             print(f"SKIP {f.name}: not a docling format (plain text needs no conversion)")
             continue
+        print(f"… {f.name} (converting — large docs can take minutes)", flush=True)
+        t0 = time.time()
         try:
             out = _docling.extract_document(str(f))
         except Exception as exc:  # noqa: BLE001 — report per-file, keep going
@@ -142,7 +150,10 @@ def main(argv: list[str] | None = None) -> int:
                 dest = f.with_suffix(".md")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(md, encoding="utf-8")
-        print(f"OK   {f.name}: {len(md)} chars, {len(out['headings'])} headings -> {dest}")
+        print(
+            f"OK   {f.name}: {len(md)} chars, {len(out['headings'])} headings "
+            f"-> {dest} ({_fmt_elapsed(time.time() - t0)})"
+        )
         ok += 1
     return 0 if ok else 1
 

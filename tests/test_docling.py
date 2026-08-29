@@ -182,6 +182,20 @@ def test_docling_convert_runner_check_gpu():
     assert "CUDA EP usable" in r.stdout
 
 
+def test_load_file_progress_streams_docling(docx_path, tmp_path):
+    from rag_kit._ui import RAGApp
+
+    app = RAGApp(db_path=str(tmp_path / "ui.db"), settings_path=str(tmp_path / "p.json"))
+    updates = list(app.load_file(docx_path, progress=True))
+    assert updates, "generator must yield at least the final result"
+    status, fid = updates[-1]
+    assert "Loaded" in status
+    assert fid.isdigit()
+    # A real docling conversion takes long enough to stream progress.
+    if len(updates) > 1:
+        assert updates[0][0].startswith("⏳")
+
+
 def test_load_file_docx_uses_docling_path(docx_path, tmp_path):
     rag = RAGSystem(db_path=str(tmp_path / "dl.db"))
     fid = rag.load_file(docx_path)
