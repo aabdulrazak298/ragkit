@@ -59,7 +59,9 @@ print(result.answer)
 - **Deterministic and cheap** — retrieval is local; LLM only synthesizes the answer
 - **SQLite-only storage** — FTS5 indexes, blake3 dedup, namespaces, LRU eviction
 - **Built-in metrics** — QueryMetrics tracks latency, turns, dedups, escalations
-- **CLI + REST** — `rag-kit` CLI, FastAPI endpoints, browser upload UI
+- **CLI + REST** — `rag-kit` CLI, FastAPI endpoints, browser upload UI;
+  `scripts/start_ui.sh` launches the UI locally (foreground or `-d`
+  daemon, `--stop` to kill, auto-opens the browser)
 - **Output capping** — `LLMConfig.max_tokens` guards against runaway generation
 
 ## Benchmarks
