@@ -6,6 +6,11 @@ coverage; these tests pin the docling path (tables survive chunking,
 headings feed the TOC, xlsx/images become loadable).
 """
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("docling")
@@ -139,6 +144,42 @@ def test_audio_pipeline_runs(tmp_path):
     out = extract_document(str(path))
     assert "text" in out
     assert _docling.source_type_for(".wav") == "audio"
+
+
+def _runner_cmd() -> list[str]:
+    root = Path(__file__).resolve().parents[1]
+    return [sys.executable, str(root / "scripts" / "docling_convert.py")]
+
+
+def _runner_env() -> dict:
+    root = Path(__file__).resolve().parents[1]
+    return {**os.environ, "PYTHONPATH": str(root / "src")}
+
+
+def test_docling_convert_runner_writes_markdown(docx_path, tmp_path):
+    out_dir = tmp_path / "out"
+    r = subprocess.run(
+        [*_runner_cmd(), docx_path, "--out-dir", str(out_dir)],
+        capture_output=True,
+        text=True,
+        env=_runner_env(),
+        timeout=300,
+    )
+    assert r.returncode == 0, r.stderr
+    md = (out_dir / "sample.md").read_text(encoding="utf-8")
+    assert "12V 3A" in md  # docling table survived the round-trip
+
+
+def test_docling_convert_runner_check_gpu():
+    r = subprocess.run(
+        [*_runner_cmd(), "--check-gpu"],
+        capture_output=True,
+        text=True,
+        env=_runner_env(),
+        timeout=120,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "CUDA EP usable" in r.stdout
 
 
 def test_load_file_docx_uses_docling_path(docx_path, tmp_path):

@@ -37,7 +37,9 @@ print(result.answer)
   `rag-kit[docling-gpu]` (adds onnxruntime-gpu) to move the OCR stage to
   the GPU too. First conversion downloads the layout/table models
   (~hundreds of MB, cached under `~/.cache/docling`); without the extra,
-  everything falls back to the built-in lightweight extractors
+  everything falls back to the built-in lightweight extractors.
+  Batch-convert outside the DB with `scripts/docling_convert.py`
+  (files/dirs → markdown, `--check-gpu` for diagnostics)
 - **Hybrid retrieval** — FTS5 BM25 + rapidfuzz fuzzy + local vector search
   (turbovec, 4-bit quantized) + FlashRank cross-encoder semantic reranking
 - **Four query pipelines** — standard (single-shot), loop (iterative

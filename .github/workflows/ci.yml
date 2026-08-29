@@ -43,10 +43,10 @@ jobs:
         run: pip install ruff
 
       - name: Ruff check
-        run: ruff check src tests
+        run: ruff check src tests scripts
 
       - name: Ruff format check
-        run: ruff format --check src tests
+        run: ruff format --check src tests scripts
 
   docling:
     # Heavy extra (pulls torch) — don't run conversions, just verify the
