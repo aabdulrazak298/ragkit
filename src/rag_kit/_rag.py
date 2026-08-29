@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from rag_kit import _docling
 from rag_kit._llm import LLMConfig
 from rag_kit._pipeline import Pipeline
 from rag_kit._processor import (
@@ -332,8 +333,36 @@ class RAGSystem:
         }
         reader = None
         page_texts: list[str] = []
+        docling_text: str | None = None
+        source_type: str | None = None
+        docling_headings: list[dict] | None = None
 
-        if ext in text_exts:
+        # Docling (optional heavy extra): when installed it handles the
+        # rich formats first — real heading hierarchy, tables as
+        # markdown, and bundled OCR for scans/images, so no separate OCR
+        # path is needed. Formats that also have a legacy extractor fall
+        # back to it if docling is missing or fails; docling-only formats
+        # (xlsx, images, legacy Office, latex, email, ...) require it.
+        if ext in _docling.DOCLING_EXTS and _docling.is_available():
+            try:
+                extracted = _docling.extract_document(path)
+            except Exception as exc:
+                if ext in _docling.DOCLING_ONLY_EXTS:
+                    raise ValueError(
+                        f"docling failed to convert {path}: {exc}. {_docling.DOCLING_INSTALL_HINT}"
+                    ) from exc
+            else:
+                cand_text = _clean_text(extracted["text"])
+                if cand_text.strip() and (ext != ".pdf" or _has_meaningful_text(cand_text)):
+                    docling_text = cand_text
+                    source_type = _docling.source_type_for(ext)
+                    docling_headings = extracted["headings"]
+                # else: empty/scanned PDF docling couldn't read — fall
+                # through to the legacy pypdf/OCR chain.
+
+        if docling_text is not None:
+            text = docling_text
+        elif ext in text_exts:
             with open(path, encoding="utf-8", errors="ignore") as f:
                 text = f.read()
             source_type = "text"
@@ -442,6 +471,8 @@ class RAGSystem:
                 text = rtf_to_text(f.read())
             source_type = "rtf"
         else:
+            if ext in _docling.DOCLING_ONLY_EXTS:
+                raise ImportError(f"Format {ext} requires docling. {_docling.DOCLING_INSTALL_HINT}")
             raise ValueError(f"Unsupported file type: {ext}")
 
         # Clean surrogates from extracted text before hashing or chunking
@@ -459,11 +490,14 @@ class RAGSystem:
             overlap or self._overlap,
         )
 
-        # Auto-extract section mappings and TOC from raw text. PDFs with an
-        # embedded outline (datasheets, manuals) get a REAL structured TOC
-        # from the bookmarks; everything else uses the text heuristic.
+        # Auto-extract section mappings and TOC. Docling's real heading
+        # hierarchy wins when present; PDFs with an embedded outline
+        # (datasheets, manuals) get a structured TOC from the bookmarks;
+        # everything else uses the text heuristic.
         headings: list[dict] = []
-        if source_type == "pdf" and reader is not None:
+        if docling_headings:
+            headings = docling_headings
+        elif source_type == "pdf" and reader is not None:
             headings = _pdf_outline_headings(reader, page_texts)
         if not headings:
             headings = _extract_headings_from_text(text)

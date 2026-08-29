@@ -26,7 +26,17 @@ print(result.answer)
 ## Features
 
 - **Multi-format ingestion** — PDF (incl. OCR for scanned), DOCX, PPTX, EPUB,
-  ODT, RTF, URLs, plain text
+  ODT, RTF, URLs, plain text; with `rag-kit[docling]` also XLSX, images,
+  LaTeX, email, legacy Office, HTML/CSV as tables
+- **Docling deep parsing (optional)** — `pip install "rag-kit[docling]"`
+  swaps in IBM Docling for the rich formats: real heading hierarchies that
+  feed the TOC directly, tables preserved as markdown, and bundled
+  OCR (RapidOCR) for scans and images — no separate OCR path needed.
+  Layout + table models auto-run on CUDA when torch sees a GPU; install
+  `rag-kit[docling-gpu]` (adds onnxruntime-gpu) to move the OCR stage to
+  the GPU too. First conversion downloads the layout/table models
+  (~hundreds of MB, cached under `~/.cache/docling`); without the extra,
+  everything falls back to the built-in lightweight extractors
 - **Hybrid retrieval** — FTS5 BM25 + rapidfuzz fuzzy + local vector search
   (turbovec, 4-bit quantized) + FlashRank cross-encoder semantic reranking
 - **Four query pipelines** — standard (single-shot), loop (iterative
@@ -130,9 +140,50 @@ pip install "rag-kit[pdf,docx,pptx,epub,odt,rtf]"
 # Scanned-document OCR
 pip install "rag-kit[ocr]"
 
+# Deep document parsing (Docling): real headings + tables, XLSX,
+# images, LaTeX, email, legacy Office. Replaces the light extractors
+# and the OCR path for supported formats when installed.
+pip install "rag-kit[docling]"
+
+# CUDA machines: adds onnxruntime-gpu so docling's OCR (RapidOCR) also
+# runs on the GPU. Runtime auto-detects — no config needed. If your
+# CUDA libs come only from torch's bundled nvidia pip packages, add
+# site-packages/nvidia/*/lib to LD_LIBRARY_PATH first.
+pip install "rag-kit[docling-gpu]"
+
 # Everything
 pip install "rag-kit[all]"
 ```
+
+### Docling + GPU (CUDA machines)
+
+`rag-kit[docling-gpu]` adds onnxruntime-gpu. Layout + table models use
+CUDA automatically (torch). The OCR stage (RapidOCR/onnxruntime) uses
+CUDA only when the execution provider can actually load — and ort
+*reports* CUDA as available even when it can't load, silently falling
+back to CPU. Known pitfalls and fixes:
+
+1. **Version mismatch** — onnxruntime-gpu must match your CUDA/cuDNN
+   (1.29 needs CUDA 13 / cuDNN 9; CUDA 12 machines should pin
+   `onnxruntime-gpu<1.23`). Fix: `pip install "onnxruntime-gpu<1.23"`.
+2. **Missing CUDA runtime libs** — a driver alone isn't enough. If your
+   only CUDA libs come from torch's bundled nvidia pip packages, point
+   ort at them:
+   `export LD_LIBRARY_PATH=<site-packages>/nvidia/*/lib:$LD_LIBRARY_PATH`
+3. **Duplicate onnxruntime** — rapidocr depends on the CPU build; if
+   `pip list | grep onnxruntime` shows both, uninstall the CPU one so
+   the onnxruntime-gpu files win: `pip uninstall onnxruntime`.
+
+Diagnose in one line — returns True only if the CUDA EP *actually*
+loads (real session test, not the provider list):
+
+```python
+from rag_kit import _docling
+print(_docling.cuda_ep_usable())   # True = GPU OCR active
+```
+
+If it's False, rag-kit also emits a one-time RuntimeWarning with the
+cause on first docling use.
 
 ## Requirements
 

@@ -47,3 +47,21 @@ jobs:
 
       - name: Ruff format check
         run: ruff format --check src tests
+
+  docling:
+    # Heavy extra (pulls torch) — don't run conversions, just verify the
+    # advertised extra installs and the lazy docling path is importable.
+    name: Docling extra installs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install package with docling extra
+        run: pip install ".[docling]"
+
+      - name: Smoke test docling path
+        run: python -c "from rag_kit import _docling; assert _docling.is_available(); print('docling OK')"
