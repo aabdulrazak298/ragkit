@@ -231,3 +231,11 @@ def test_fallback_when_docling_missing(docx_path, xlsx_path, tmp_path, monkeypat
     # Docling-only formats must fail with an actionable install hint.
     with pytest.raises(ImportError, match="docling"):
         rag.load_file(xlsx_path)
+
+
+def test_docling_opt_out_env(monkeypatch):
+    # RAGKIT_DOCLING=0 disables the docling path even when installed.
+    monkeypatch.setenv("RAGKIT_DOCLING", "0")
+    assert not is_available()
+    monkeypatch.delenv("RAGKIT_DOCLING")
+    assert is_available()

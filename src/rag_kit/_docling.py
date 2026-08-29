@@ -17,6 +17,7 @@ conversions run fully offline.
 
 from __future__ import annotations
 
+import os
 import re
 
 # Audio/video are transcribed (Whisper) — require rag-kit[docling-asr]
@@ -139,7 +140,16 @@ _gpu_checked = False
 
 
 def is_available() -> bool:
-    """True when docling is importable (i.e. rag-kit[docling] installed)."""
+    """True when docling is importable (i.e. rag-kit[docling] installed).
+
+    Set RAGKIT_DOCLING=0 (or "false") to disable the docling path
+    entirely — loads fall back to the fast legacy extractors (pypdf,
+    python-docx, ...). Useful when docling's deep parsing is overkill
+    for a file or too slow on CPU.
+    """
+    env = os.environ.get("RAGKIT_DOCLING", "")
+    if env and env.lower() in ("0", "false", "no", "off"):
+        return False
     try:
         import docling  # noqa: F401
 
