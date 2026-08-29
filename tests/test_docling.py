@@ -102,6 +102,45 @@ def test_extract_html_headings(html_path):
     assert titles == ["Widget Manual", "Assembly"]  # h1 then h2
 
 
+@pytest.fixture(scope="module")
+def vtt_path(tmp_path_factory):
+    path = tmp_path_factory.mktemp("docs") / "captions.vtt"
+    path.write_text(
+        "WEBVTT\n\n"
+        "00:00:01.000 --> 00:00:04.000\n"
+        "The quick brown fox jumps over the lazy dog.\n\n"
+        "00:00:05.000 --> 00:00:08.000\n"
+        "Setup Guide: install the package first.\n"
+    )
+    return str(path)
+
+
+def test_extract_vtt_subtitles(vtt_path):
+    # VTT needs no ASR extra — docling parses the cues directly.
+    out = extract_document(vtt_path)
+    assert "quick brown fox" in out["text"].lower()
+
+
+def test_audio_pipeline_runs(tmp_path):
+    # Smoke test only: whisper on a 440 Hz tone produces no words, but
+    # the docling audio pipeline (ASR) must run without raising.
+    pytest.importorskip("whisper")
+    import wave
+
+    import numpy as np
+
+    path = tmp_path / "tone.wav"
+    samples = (0.1 * np.sin(2 * np.pi * 440 * np.arange(16000) / 16000)).astype(np.float32)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes((samples * 32767).astype(np.int16).tobytes())
+    out = extract_document(str(path))
+    assert "text" in out
+    assert _docling.source_type_for(".wav") == "audio"
+
+
 def test_load_file_docx_uses_docling_path(docx_path, tmp_path):
     rag = RAGSystem(db_path=str(tmp_path / "dl.db"))
     fid = rag.load_file(docx_path)

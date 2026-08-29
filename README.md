@@ -27,7 +27,8 @@ print(result.answer)
 
 - **Multi-format ingestion** — PDF (incl. OCR for scanned), DOCX, PPTX, EPUB,
   ODT, RTF, URLs, plain text; with `rag-kit[docling]` also XLSX, images,
-  LaTeX, email, legacy Office, HTML/CSV as tables
+  LaTeX, email, legacy Office, HTML/CSV as tables; with
+  `rag-kit[docling-asr]` also audio (Whisper transcription) and video
 - **Docling deep parsing (optional)** — `pip install "rag-kit[docling]"`
   swaps in IBM Docling for the rich formats: real heading hierarchies that
   feed the TOC directly, tables preserved as markdown, and bundled
@@ -150,6 +151,11 @@ pip install "rag-kit[docling]"
 # CUDA libs come only from torch's bundled nvidia pip packages, add
 # site-packages/nvidia/*/lib to LD_LIBRARY_PATH first.
 pip install "rag-kit[docling-gpu]"
+
+# Audio/video transcription (Whisper): MP3/WAV/M4A/FLAC/OGG/..., MP4/
+# WebM/MOV/MKV, VTT subtitles (VTT needs no extra). First conversion
+# downloads the Whisper model (~75 MB, cached); video needs ffmpeg.
+pip install "rag-kit[docling-asr]"
 
 # Everything
 pip install "rag-kit[all]"

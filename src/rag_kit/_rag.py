@@ -349,7 +349,7 @@ class RAGSystem:
             except Exception as exc:
                 if ext in _docling.DOCLING_ONLY_EXTS:
                     raise ValueError(
-                        f"docling failed to convert {path}: {exc}. {_docling.DOCLING_INSTALL_HINT}"
+                        f"docling failed to convert {path}: {exc}. {_docling.install_hint_for(ext)}"
                     ) from exc
             else:
                 cand_text = _clean_text(extracted["text"])
@@ -472,7 +472,9 @@ class RAGSystem:
             source_type = "rtf"
         else:
             if ext in _docling.DOCLING_ONLY_EXTS:
-                raise ImportError(f"Format {ext} requires docling. {_docling.DOCLING_INSTALL_HINT}")
+                raise ImportError(
+                    f"Format {ext} requires docling. {_docling.install_hint_for(ext)}"
+                )
             raise ValueError(f"Unsupported file type: {ext}")
 
         # Clean surrogates from extracted text before hashing or chunking

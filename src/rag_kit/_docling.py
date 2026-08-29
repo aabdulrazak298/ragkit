@@ -19,6 +19,11 @@ from __future__ import annotations
 
 import re
 
+# Audio/video are transcribed (Whisper) — require rag-kit[docling-asr]
+# (docling[asr]) plus ffmpeg for video decoding.
+AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wma"}
+VIDEO_EXTS = {".mp4", ".webm", ".mov", ".mkv", ".avi"}
+
 # Formats docling converts natively when installed.
 DOCLING_EXTS = {
     ".pdf",
@@ -33,6 +38,7 @@ DOCLING_EXTS = {
     ".tex",
     ".eml",
     ".adoc",
+    ".vtt",
     # Legacy Office + spreadsheet siblings: converted via LibreOffice —
     # need the `soffice` binary present, not just the python package.
     ".doc",
@@ -48,6 +54,10 @@ DOCLING_EXTS = {
     ".tiff",
     ".bmp",
     ".webp",
+    # Audio/video are transcribed (Whisper) — require the asr extra
+    # (rag-kit[docling-asr]) plus ffmpeg for video decoding.
+    *AUDIO_EXTS,
+    *VIDEO_EXTS,
 }
 
 # Formats with NO legacy extractor in rag-kit — docling is the only path.
@@ -61,6 +71,7 @@ DOCLING_ONLY_EXTS = {
     ".tex",
     ".eml",
     ".adoc",
+    ".vtt",
     ".png",
     ".jpg",
     ".jpeg",
@@ -68,6 +79,8 @@ DOCLING_ONLY_EXTS = {
     ".tiff",
     ".bmp",
     ".webp",
+    *AUDIO_EXTS,
+    *VIDEO_EXTS,
 }
 
 # Map extension → storage source_type label (same labels the legacy
@@ -97,9 +110,24 @@ _SOURCE_TYPE_BY_EXT = {
     ".tiff": "image",
     ".bmp": "image",
     ".webp": "image",
+    ".vtt": "vtt",
+    **{ext: "audio" for ext in AUDIO_EXTS},
+    **{ext: "video" for ext in VIDEO_EXTS},
 }
 
 DOCLING_INSTALL_HINT = "Install rag-kit[docling]: pip install 'rag-kit[docling]'"
+DOCLING_ASR_INSTALL_HINT = (
+    "Install rag-kit[docling-asr]: pip install 'rag-kit[docling-asr]' "
+    "(adds Whisper transcription for audio/video)"
+)
+
+
+def install_hint_for(ext: str) -> str:
+    """Actionable install hint for an extension."""
+    if ext.lower() in AUDIO_EXTS or ext.lower() in VIDEO_EXTS:
+        return DOCLING_ASR_INSTALL_HINT
+    return DOCLING_INSTALL_HINT
+
 
 # Markdown headings in the export: "# Title", "## Sub", ... offset = byte
 # position of the heading line in the exported markdown (exact by
